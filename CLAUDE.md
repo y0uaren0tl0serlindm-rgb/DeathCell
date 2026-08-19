@@ -80,8 +80,13 @@ tests/        smoke_test（核心链路）, generation_test（关卡可通行性
 
 - **移动/跳跃/翻滚**：`src/player/player.gd` 顶部常量区。
   ⚠️ 改跳跃参数必须同步 `src/level/level_grid.gd` 的"玩家能力"常量段
-  （`BODY_TILES` / `JUMP_UP` / `_max_dx()`）—— 地形生成是按这些值反推约束的，
-  不同步就会生成玩家跳不上去的地形。改完跑一遍 generation_test 验证。
+  （`BODY_TILES` / `JUMP_UP` / `PLATFORM_CLEARANCE` / `_max_dx()`）——
+  地形生成是按这些值反推约束的，不同步就会生成玩家跳不上去的地形。
+  这几个常量之间有硬约束（`PLATFORM_CLEARANCE + 1 <= JUMP_UP`），
+  generation_test 开头会直接断言，改完跑一遍就知道有没有破坏配合。
+- **玩家的瞬时状态**：新增任何 `_queued_*` / `_active_*` / 输入缓冲字段，
+  都要加进 `player.gd` 的 `clear_transient_state()`。
+  漏了它就会跨房间泄漏，在下一次攻击结束时莫名其妙地生效（issue #6）。
 - **武器连招**：`src/weapons/weapons.gd`。每段招式是 前摇 / 判定 / 后摇 三个时间片，
   `cancel_after` 决定后摇进行到多少比例可以被下一段或翻滚取消 —— 这个值决定了整套战斗的节奏。
 - **打击感**：`src/autoload/fx.gd`（顿帧时长、震屏强度）。

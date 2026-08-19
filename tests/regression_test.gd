@@ -29,6 +29,7 @@ func _ready() -> void:
 	await _test_issue_3_depth_ordering()
 	await _test_issue_4_stale_death_screen()
 	await _test_issue_5_cell_reward_split()
+	await _test_issue_6_room_transition_clears_queue()
 
 	if _failures.is_empty():
 		print("\n回归测试全部通过")
@@ -190,6 +191,58 @@ func _test_issue_5_cell_reward_split() -> void:
 	await _frames(150)
 	_check(Game.cells - cells_before == reward,
 		"#5 击杀 Brute 实际到手 %d（配置 %d）" % [Game.cells - cells_before, reward])
+
+
+# ---------------------------------------------------------------- #6
+
+## 换房间必须清掉上一房间的攻击上下文和排队输入
+func _test_issue_6_room_transition_clears_queue() -> void:
+	print("\n[#6] 换房间清理瞬时状态")
+	var player := get_tree().get_first_node_in_group(&"player") as Player
+	await _wait_until_idle(player)
+	var weapon_before: WeaponData = player.weapon
+	var hp_before: int = player.health.current
+
+	# 攻击中排队换武器 + 排队下一段连招
+	Input.action_press(&"attack")
+	await _frames(1)
+	Input.action_release(&"attack")
+	await _frames(2)
+	if player.state != Player.State.ATTACK:
+		_fail("#6 没能进入攻击状态")
+		return
+	Input.action_press(&"swap_weapon")
+	await _frames(1)
+	Input.action_release(&"swap_weapon")
+	Input.action_press(&"attack")
+	await _frames(1)
+	Input.action_release(&"attack")
+	await _frames(1)
+	_check(player._queued_swap, "#6 攻击中按 K 确实进入了排队状态")
+
+	# 攻击还没结束就进门
+	_check(player.state == Player.State.ATTACK, "#6 进门时仍在攻击中")
+	Events.request_next_room.emit()
+	await _frames(6)
+
+	_check(not player._queued_swap, "#6 进新房间后排队换武器已清除")
+	_check(not player._queued_attack, "#6 进新房间后排队连招已清除")
+	_check(player._active_step == null and player._active_weapon == null,
+		"#6 进新房间后攻击上下文已清除")
+	_check(player.weapon == weapon_before,
+		"#6 已装备的武器跨房间保留（%s）" % player.weapon.display_name)
+	_check(player.health.current == hp_before,
+		"#6 血量跨房间保留（%d）" % player.health.current)
+
+	# 新房间里完整打一套，结束时不能冒出上一房间遗留的换武器
+	await _wait_until_idle(player)
+	Input.action_press(&"attack")
+	await _frames(1)
+	Input.action_release(&"attack")
+	await _wait_until_idle(player)
+	await _frames(30)
+	_check(player.weapon == weapon_before,
+		"#6 新房间攻击结束后没有触发遗留的换武器（%s）" % player.weapon.display_name)
 
 
 # ---------------------------------------------------------------- 工具

@@ -432,10 +432,39 @@ func set_camera_limits(bounds: Rect2) -> void:
 	camera.set_limits(bounds)
 
 
-## 换房间时复位（保留血量与武器）
+## 清掉所有"只属于当前这一刻"的战斗上下文与输入队列。
+##
+## 这里是唯一的瞬时状态清单 —— 新增任何 _queued_* / _active_* / 缓冲计时器
+## 都要加到这里，否则它会跨房间泄漏，在下一次攻击结束时莫名其妙地生效（issue #6）。
+## 判断标准：这个字段描述的是"某次攻击/某次输入"，还是"这个角色是什么"？
+## 前者进这里，后者（血量、当前武器、朝向）不进。
+func clear_transient_state() -> void:
+	# 攻击上下文
+	hitbox.deactivate()
+	_active_weapon = null
+	_active_step = null
+	_attack_phase = AttackPhase.WINDUP
+	_phase_time = 0.0
+	_combo_index = 0
+	_combo_timer = 0.0
+	# 排队的输入
+	_queued_attack = false
+	_queued_swap = false
+	# 输入缓冲与冷却
+	_jump_buffer = 0.0
+	_attack_buffer = 0.0
+	_roll_buffer = 0.0
+	_coyote = 0.0
+	_roll_cooldown = 0.0
+	_input_x = 0.0
+	_jump_held = false
+
+
+## 换房间时复位。
+## 保留：血量、当前已装备的武器、朝向 —— 这些是"角色的状态"。
+## 丢弃：上一房间的攻击上下文和排队输入 —— 房间切换是一道明确的状态边界。
 func reset_for_room(spawn: Vector2) -> void:
 	global_position = spawn
 	velocity = Vector2.ZERO
 	_set_state(State.FALL)
-	hitbox.deactivate()
-	_combo_index = 0
+	clear_transient_state()

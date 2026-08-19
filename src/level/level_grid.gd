@@ -24,8 +24,12 @@ const ROOF_CLEARANCE := 6    ## 洞顶与地面之间至少留几格
 # --- 玩家能力（必须和 player.gd 对齐；改跳跃参数要回来同步）---
 ## 玩家碰撞体 22px，一格 16px → 站立需要 2 格净空
 const BODY_TILES := 2
-## 平台底面离地面至少留几格，保证地面走廊永远走得过去
-const PLATFORM_HEADROOM := 3
+## 平台底面与地面之间要留的净空，保证地面走廊永远走得过去。
+## 它和 JUMP_UP 是耦合的，改一个必须回头看另一个：
+## 净空 c 格 → 平台落脚点比地面落脚点高 c+1 格 → 想跳得上去必须 c + 1 <= JUMP_UP。
+## 之前这里写 3，算出来平台永远高 4 格，比 JUMP_UP 还高一格，
+## 于是平台画得出来、站不上去（issue #7）。
+const PLATFORM_CLEARANCE := BODY_TILES
 ## 实测跳跃高度 52px ≈ 3.25 格，保守取 3
 const JUMP_UP := 3
 
@@ -41,6 +45,8 @@ var exit_x := W - 6
 
 ## 生成时做了几次修复。正常应该恒为 0；测试会盯着这个值。
 var repairs := 0
+## 因为够不着而被拆掉的平台块数
+var pruned_platforms := 0
 
 var _rng: RandomNumberGenerator
 var _terrain_snapshot: Array[PackedByteArray] = []
@@ -49,10 +55,12 @@ var _terrain_snapshot: Array[PackedByteArray] = []
 func build(rng: RandomNumberGenerator) -> void:
 	_rng = rng
 	repairs = 0
+	pruned_platforms = 0
 	_build_heightmap()
 	_compute_corridor_ceiling()
 	_snapshot_terrain()
 	_carve_platforms()
+	_prune_unreachable_platforms()
 
 	# 兜底：平台是可选内容，挡路了就整批拆掉
 	if not exit_reachable():
@@ -133,32 +141,166 @@ func _compute_corridor_ceiling() -> void:
 
 
 ## 悬空平台：给战斗和走位加一层立体空间。
-## 平台如果压到走廊禁区，做法是**整块抬高**而不是丢弃 —— 直接丢会让关卡变得空旷无聊。
+##
+## 高度不是随便取的：平台**正下方是跳不上去的**（会顶到平台底面），
+## 真实路线是在平台边上起跳、再落到台面。所以基准落脚点取紧挨平台左边那一列，
+## 平台落脚点正好比它高 JUMP_UP 格。
 func _carve_platforms() -> void:
-	var count := _rng.randi_range(7, 12)
-	for i in count:
-		var x0 := _rng.randi_range(5, W - 12)
-		var x1 := mini(x0 + _rng.randi_range(3, 7), W - 2)
-		# 高度偏向 3~4 格，玩家从地面一跳就能上去（JUMP_UP = 3）
-		var desired := ground_row[x0] - _rng.randi_range(3, 4)
+	# 记录哪些列已经有平台。平台互相叠会造出"站得下但进不去"的夹层：
+	# 上下相隔正好 BODY_TILES 时人塞得进去，但移动过去需要顶点有 BODY_TILES 格净空，
+	# 正好被上层挡死。与其事后检测，不如一开始就不让它们叠。
+	var occupied := PackedByteArray()
+	occupied.resize(W)
 
-		# 整段允许的最低位置：取沿途最严格的那一列
-		var limit := H
-		for x in range(x0, x1):
-			limit = mini(limit, corridor_ceiling[x] - 1)
-			limit = mini(limit, ground_row[x] - 1 - PLATFORM_HEADROOM)
-		var y := mini(desired, limit)
+	var placed: Array = []   # [x0, x1, tile_row]
+	for i in _rng.randi_range(7, 12):
+		var x0 := -1
+		var x1 := -1
+		for attempt in 6:
+			var a := _rng.randi_range(6, W - 12)
+			var b := mini(a + _rng.randi_range(3, 7), W - 2)
+			# 左右各留一列空隙，起跳的那一列不能被别的平台占着
+			if _span_free(occupied, a - 1, b + 1):
+				x0 = a
+				x1 = b
+				break
+		if x0 < 0:
+			continue
+		var support := ground_row[maxi(x0 - 1, 2)] - 1     # 边上那一列的落脚点
+		var y := _place_platform(x0, x1, support - JUMP_UP + 1)
+		if y > 0:
+			placed.append([x0, x1, y])
+			_mark_span(occupied, x0, x1)
 
-		for x in range(x0, x1):
-			if y >= corridor_ceiling[x] or y > ground_row[x] - 1 - PLATFORM_HEADROOM:
+	# 第二层：接在下层平台**右边**继续往上，摞成楼梯而不是夹层。
+	# 压在下层头顶的话，下层就变成走不进去的死区（issue #7）。
+	for p in placed:
+		if _rng.randf() > 0.45:
+			continue
+		var a: int = p[1]                      # 紧接下层右缘，起跳点是下层最后一列
+		var b: int = mini(a + _rng.randi_range(3, 5), W - 2)
+		if b - a < 2 or not _span_free(occupied, a, b + 1):
+			continue
+		var support2: int = p[2] - 1           # 下层平台的落脚点
+		var y2 := _place_platform(a, b, support2 - JUMP_UP + 1)
+		if y2 > 0:
+			_mark_span(occupied, a, b)
+
+
+func _span_free(occupied: PackedByteArray, x0: int, x1: int) -> bool:
+	for x in range(maxi(x0, 0), mini(x1, W)):
+		if occupied[x] == 1:
+			return false
+	return true
+
+
+func _mark_span(occupied: PackedByteArray, x0: int, x1: int) -> void:
+	for x in range(maxi(x0, 0), mini(x1, W)):
+		occupied[x] = 1
+
+
+## 放一段平台，返回实际使用的砖块行；放不下返回 -1。
+## 压到走廊禁区时整块抬高而不是丢弃 —— 直接丢会让关卡变空旷。
+func _place_platform(x0: int, x1: int, desired: int) -> int:
+	var limit := H
+	for x in range(x0, x1):
+		limit = mini(limit, corridor_ceiling[x] - 1)
+		limit = mini(limit, ground_row[x] - 1 - PLATFORM_CLEARANCE)
+	var y := mini(desired, limit)
+
+	var any := false
+	for x in range(x0, x1):
+		if y >= corridor_ceiling[x] or y > ground_row[x] - 1 - PLATFORM_CLEARANCE:
+			continue
+		if y <= roof_row[x] + BODY_TILES:
+			continue   # 贴着洞顶的平台站不上去，别放
+		solid[x][y] = 1
+		any = true
+		# 平台上方留出通行高度
+		for dy in range(1, BODY_TILES + 2):
+			if y - dy > roof_row[x]:
+				solid[x][y - dy] = 0
+	return y if any else -1
+
+
+## 把没有任何可达落脚点的平台整块拆掉。
+## 按构造摆放已经能让绝大多数平台可达，但"我以为够得着"和"真的够得着"是两回事，
+## 所以仍然用可达性搜索兜一道。拆掉一块可能让另一块失去踏脚点，所以要迭代。
+func _prune_unreachable_platforms() -> void:
+	for attempt in 4:
+		var reach := reachable_cells()
+		var removed := false
+		for comp in platform_components():
+			if _component_reachable(comp, reach):
 				continue
-			if y <= roof_row[x] + BODY_TILES:
-				continue   # 贴着洞顶的平台站不上去，别放
-			solid[x][y] = 1
-			# 平台上方留出通行高度
-			for dy in range(1, BODY_TILES + 2):
-				if y - dy > roof_row[x]:
-					solid[x][y - dy] = 0
+			for cell in comp:
+				solid[cell.x][cell.y] = 0
+			removed = true
+			pruned_platforms += 1
+		if not removed:
+			return
+
+
+func _component_reachable(comp: Array, reach: Dictionary) -> bool:
+	for cell in comp:
+		if reach.has(Vector2i(cell.x, cell.y - 1)):
+			return true
+	return false
+
+
+## 悬空平台的砖块（地形之外后来加上去的那些）
+func is_platform_tile(x: int, y: int) -> bool:
+	if x < 0 or x >= W or y < 0 or y >= H or solid[x][y] == 0:
+		return false
+	return _terrain_snapshot.size() == W and _terrain_snapshot[x][y] == 0
+
+
+## 把相连的平台砖块分组，一组就是玩家眼里的"一块平台"
+func platform_components() -> Array:
+	const NEIGHBORS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	var seen := {}
+	var comps := []
+	for x in W:
+		for y in H:
+			if not is_platform_tile(x, y):
+				continue
+			var key := Vector2i(x, y)
+			if seen.has(key):
+				continue
+			var comp: Array[Vector2i] = []
+			var stack: Array[Vector2i] = [key]
+			seen[key] = true
+			while not stack.is_empty():
+				var c: Vector2i = stack.pop_back()
+				comp.append(c)
+				for d in NEIGHBORS:
+					var n: Vector2i = c + d
+					if is_platform_tile(n.x, n.y) and not seen.has(n):
+						seen[n] = true
+						stack.append(n)
+			comps.append(comp)
+	return comps
+
+
+## 有可达落脚点的平台砖块数。只有这些才算真正的"可玩平台"，
+## 装饰性的够不着的平台不该计进关卡立体度指标（issue #7）。
+func playable_platform_tile_count() -> int:
+	var reach := reachable_cells()
+	var n := 0
+	for comp in platform_components():
+		if _component_reachable(comp, reach):
+			n += comp.size()
+	return n
+
+
+## 够不着的平台组件数量。正常应该恒为 0。
+func unreachable_platform_count() -> int:
+	var reach := reachable_cells()
+	var n := 0
+	for comp in platform_components():
+		if not _component_reachable(comp, reach):
+			n += 1
+	return n
 
 
 func _snapshot_terrain() -> void:
@@ -175,6 +317,7 @@ func _restore_terrain() -> void:
 func _flatten_whole_corridor() -> void:
 	for x in range(2, W - 2):
 		_flatten_column(x, MAX_GROUND_ROW - 2)
+	_snapshot_terrain()   # 地形变了，平台判定的基准也要跟着更新
 
 
 # ---------------------------------------------------------------- 查询
