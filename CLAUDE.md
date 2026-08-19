@@ -24,8 +24,9 @@ git push origin main && git push github main
 ## 运行
 
 ```bash
-godot --path .                                    # 直接开玩
-godot --headless --path . res://tests/smoke_test.tscn   # 无头冒烟测试（15 项）
+godot --path .                                            # 直接开玩
+godot --headless --path . res://tests/smoke_test.tscn     # 冒烟测试：核心链路 15 项
+godot --headless --path . res://tests/generation_test.tscn # 关卡校验：1800 个房间可通行
 ```
 
 改了带 `class_name` 的脚本后如果命令行报 "Could not find type X"，
@@ -52,18 +53,21 @@ src/
   player/     player.gd（枚举状态机：IDLE/RUN/JUMP/FALL/ROLL/ATTACK/HURT/DEAD）
   weapons/    WeaponData + AttackStep + weapons.gd（武器库，代码定义）
   enemies/    enemy.gd 基类 + grunt.tscn / brute.tscn（靠 @export 数值区分）
-  level/      room.gd（程序化房间生成）, door.gd
+  level/      level_grid.gd（地形生成 + 可达性校验，不进场景树，可批量测试）
+              room.gd（把网格变成碰撞体/画面/角色）, door.gd
   pickups/    cell_pickup.gd
   ui/         hud.gd
   fx/         game_camera.gd, damage_number.gd
   main.gd     房间 ↔ 玩家 ↔ 死亡重开的编排
-tests/        无头冒烟测试
+tests/        smoke_test（核心链路）, generation_test（关卡可通行性）
 ```
 
 ## 调手感看这里
 
-- **移动/跳跃/翻滚**：`src/player/player.gd` 顶部常量区。跳跃高度约 3.4 格、跳跃距离约 6 格 ——
-  `src/level/room.gd` 的地形生成就是按这个能力上限约束的（`MAX_STEP = 2`），改跳跃参数时要一起看。
+- **移动/跳跃/翻滚**：`src/player/player.gd` 顶部常量区。
+  ⚠️ 改跳跃参数必须同步 `src/level/level_grid.gd` 的"玩家能力"常量段
+  （`BODY_TILES` / `JUMP_UP` / `_max_dx()`）—— 地形生成是按这些值反推约束的，
+  不同步就会生成玩家跳不上去的地形。改完跑一遍 generation_test 验证。
 - **武器连招**：`src/weapons/weapons.gd`。每段招式是 前摇 / 判定 / 后摇 三个时间片，
   `cancel_after` 决定后摇进行到多少比例可以被下一段或翻滚取消 —— 这个值决定了整套战斗的节奏。
 - **打击感**：`src/autoload/fx.gd`（顿帧时长、震屏强度）。
@@ -119,7 +123,7 @@ Hitbox 只 `monitoring`，Hurtbox 只 `monitorable` —— 攻击方主动检测
 **接入位置**：每个角色场景里都有一个 `Visual` 节点，下面挂的 ColorRect 就是占位。
 把 ColorRect 换成 `AnimatedSprite2D`、按上面的名字建动画即可，
 `player.gd` / `enemy.gd` 里改几行播放调用，不动任何逻辑。
-地形那边 `room.gd` 已经生成好 `solid` 网格，接 TileMapLayer 只是把网格喂过去。
+地形那边 `level_grid.gd` 已经生成好 `solid` 网格，接 TileMapLayer 只是把网格喂过去。
 
 **配色**：背景和地形色现在是按层数做色相偏移（`room.gd` 的 `generate()`），
 如果美术要出固定的生物群系配色，告诉我改成查表即可。
