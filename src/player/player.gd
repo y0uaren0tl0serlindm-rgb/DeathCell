@@ -7,6 +7,16 @@ extends CharacterBody2D
 ##  - 翻滚有无敌帧，并且能取消攻击后摇 —— 这是整套战斗节奏的发动机
 ##  - 攻击分 前摇/判定/后摇 三段，后摇过半即可被下一段或翻滚取消
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const AttackStep = preload("res://src/weapons/attack_step.gd")
+const DamageInfo = preload("res://src/core/damage_info.gd")
+const Health = preload("res://src/core/health.gd")
+const Hitbox = preload("res://src/core/hitbox.gd")
+const Hurtbox = preload("res://src/core/hurtbox.gd")
+const WeaponData = preload("res://src/weapons/weapon_data.gd")
+const Weapons = preload("res://src/weapons/weapons.gd")
+
 enum State { IDLE, RUN, JUMP, FALL, ROLL, ATTACK, HURT, DEAD }
 enum AttackPhase { WINDUP, ACTIVE, RECOVERY }
 

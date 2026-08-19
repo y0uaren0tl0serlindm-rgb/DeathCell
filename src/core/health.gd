@@ -2,6 +2,10 @@ class_name Health
 extends Node
 ## 生命值容器。谁受伤都用它，玩家和敌人共用。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const DamageInfo = preload("res://src/core/damage_info.gd")
+
 signal changed(current: int, maximum: int)
 signal damaged(info: DamageInfo)
 signal died()

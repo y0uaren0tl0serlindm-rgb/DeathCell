@@ -2,6 +2,10 @@ extends Node
 ## 打击感相关的全局效果：顿帧（hitstop）、震屏、飘字。
 ## 死亡细胞的手感有一半来自这三样，所以做成全局的、任何地方一行就能调用。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const DamageNumber = preload("res://src/fx/damage_number.gd")
+
 signal shake_requested(trauma: float)
 
 const DamageNumberScene := preload("res://src/fx/damage_number.tscn")

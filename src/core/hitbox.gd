@@ -3,6 +3,11 @@ extends Area2D
 ## 攻击判定框。默认关闭，攻击的 active 阶段由角色脚本打开。
 ## 一次挥击对同一个目标只结算一次（activate() 会清空命中表）。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const DamageInfo = preload("res://src/core/damage_info.gd")
+const Hurtbox = preload("res://src/core/hurtbox.gd")
+
 signal hit(hurtbox: Hurtbox)
 
 @export var damage: int = 10
@@ -69,7 +74,7 @@ func _on_area_entered(area: Area2D) -> void:
 		if dir == Vector2.ZERO:
 			dir = Vector2.RIGHT
 
-	var info := DamageInfo.create(damage, dir * knockback_force, owner)
+	var info := DamageInfo.new(damage, dir * knockback_force, owner)
 	info.is_crit = randf() < crit_chance
 	if info.is_crit:
 		info.amount = int(round(info.amount * 1.8))

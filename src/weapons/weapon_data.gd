@@ -2,6 +2,10 @@ class_name WeaponData
 extends Resource
 ## 一把武器 = 一组连招 + 一组数值。换武器就是换这个 Resource。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const AttackStep = preload("res://src/weapons/attack_step.gd")
+
 @export var display_name: String = "断剑"
 @export var base_damage: int = 12
 @export var crit_chance: float = 0.1

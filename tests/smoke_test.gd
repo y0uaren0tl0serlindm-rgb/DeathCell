@@ -2,13 +2,21 @@ extends Node
 ## 无头冒烟测试：验证核心链路没断。
 ##   godot --headless --path . res://tests/smoke_test.tscn
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const DamageInfo = preload("res://src/core/damage_info.gd")
+const Enemy = preload("res://src/enemies/enemy.gd")
+const Player = preload("res://src/player/player.gd")
+const Room = preload("res://src/level/room.gd")
+
 const MainScene := preload("res://src/main.tscn")
 
 var _failures: Array[String] = []
+var main: Node
 
 
 func _ready() -> void:
-	var main := MainScene.instantiate()
+	main = MainScene.instantiate()
 	add_child(main)
 	await _frames(10)
 
@@ -40,7 +48,7 @@ func _ready() -> void:
 
 	# --- 击杀掉细胞 ---
 	var cells_before := Game.cells
-	enemy.health.take_damage(DamageInfo.create(9999, Vector2.RIGHT, null))
+	enemy.health.take_damage(DamageInfo.new(9999, Vector2.RIGHT, null))
 	await _frames(120)
 	_check(Game.cells > cells_before, "击杀后拾取到细胞 (%d)" % Game.cells)
 
@@ -56,7 +64,12 @@ func _ready() -> void:
 
 	# 回归：房间的 _draw() 铺满整块背景，新房间又是后加进 world 的，
 	# 所以房间必须待在玩家下面一层，否则换房间后玩家会被背景盖住看不见
-	var rooms := get_tree().root.find_children("*", "Room", true, false)
+	# 用预加载的类型判断，不要用 find_children(..., "Room") ——
+	# 那个靠字符串查全局类注册表，冷启动没有缓存时查不到（issue #8）
+	var rooms: Array[Node] = []
+	for child in main.world.get_children():
+		if child is Room:
+			rooms.append(child)
 	_check(rooms.size() == 1, "同时只存在一个房间 (%d)" % rooms.size())
 	if rooms.size() > 0:
 		_check((rooms[0] as Node2D).z_index < player.z_index,
@@ -68,7 +81,7 @@ func _ready() -> void:
 	Events.player_died.connect(func(): died[0] = true)
 	print("    (致命一击前 无敌=%s 血量=%d)" % [player.health.is_invulnerable, player.health.current])
 	player.health.end_iframes()   # 这里测的是死亡流程，不是无敌帧
-	player.health.take_damage(DamageInfo.create(9999, Vector2.LEFT, null))
+	player.health.take_damage(DamageInfo.new(9999, Vector2.LEFT, null))
 	await _frames(5)
 	_check(died[0], "玩家死亡事件触发")
 

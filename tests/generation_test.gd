@@ -5,6 +5,10 @@ extends Node
 ## 对应 issue #1：程序化地形偶发生成不可通行路线。
 ## 这个测试不进场景树、不实例化角色，所以几百个房间只要几秒。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const LevelGrid = preload("res://src/level/level_grid.gd")
+
 const SEED_COUNT := 300
 const DEPTHS := [0, 1, 3, 5, 9, 15]
 

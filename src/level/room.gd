@@ -7,6 +7,11 @@ extends Node2D
 ## _draw() 会铺满整块房间背景，如果和玩家同层，就会因为节点树顺序不同而把玩家盖住
 ## （换房间时新房间是后加进 world 的）。z_index 让绘制顺序不再依赖加入顺序。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const Enemy = preload("res://src/enemies/enemy.gd")
+const LevelGrid = preload("res://src/level/level_grid.gd")
+
 const GruntScene := preload("res://src/enemies/grunt.tscn")
 const BruteScene := preload("res://src/enemies/brute.tscn")
 const DoorScene := preload("res://src/level/door.tscn")

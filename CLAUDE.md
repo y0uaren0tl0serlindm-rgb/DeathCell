@@ -28,10 +28,22 @@ godot --path .                                            # 直接开玩
 godot --headless --path . res://tests/smoke_test.tscn     # 冒烟测试：核心链路 15 项
 godot --headless --path . res://tests/generation_test.tscn # 关卡校验：1800 个房间可通行
 godot --headless --path . res://tests/regression_test.tscn # 回归测试：已修 issue 不复发
+bash tests/cold_start_check.sh                            # 冷启动：无缓存也能起
 ```
 
-改了带 `class_name` 的脚本后如果命令行报 "Could not find type X"，
-跑一次 `godot --headless --path . --editor --quit` 重建全局类缓存即可。
+### 引用别的脚本要显式 preload
+
+跨文件用到别人的 `class_name` 时，**必须在文件顶部写一行 `const X = preload("res://...")`**，
+哪怕全局类名看起来已经能用了。
+
+原因：`class_name` 的解析依赖 `.godot/global_script_class_cache.cfg`，而这个目录不入库。
+干净检出、或者别人 pull 到含新 `class_name` 的代码而没重开编辑器，都会解析失败、
+游戏直接起不来（issue #8）。显式 preload 让依赖在解析期就确定，跟缓存无关。
+
+同理，**不要用字符串查类**（`find_children(..., "Room")`、`ClassDB` 之类）——
+那也走全局注册表。用预加载的常量做 `is` 判断。
+
+改完跑 `bash tests/cold_start_check.sh` 验证。
 
 ## 操作
 

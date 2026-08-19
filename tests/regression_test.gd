@@ -5,6 +5,15 @@ extends Node
 ## 这里只放"曾经真的坏过"的行为。加新用例时请在标题里写清 issue 号，
 ## 这样以后有人改坏了能立刻知道自己踩回了哪个坑。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const AttackStep = preload("res://src/weapons/attack_step.gd")
+const DamageInfo = preload("res://src/core/damage_info.gd")
+const Enemy = preload("res://src/enemies/enemy.gd")
+const Player = preload("res://src/player/player.gd")
+const Room = preload("res://src/level/room.gd")
+const WeaponData = preload("res://src/weapons/weapon_data.gd")
+
 const MainScene := preload("res://src/main.tscn")
 
 var _failures: Array[String] = []
@@ -119,7 +128,7 @@ func _test_issue_4_stale_death_screen() -> void:
 	var player := get_tree().get_first_node_in_group(&"player") as Player
 
 	player.health.end_iframes()
-	player.health.take_damage(DamageInfo.create(9999, Vector2.LEFT, null))
+	player.health.take_damage(DamageInfo.new(9999, Vector2.LEFT, null))
 	await _frames(6)   # 远早于 0.8 秒的延迟
 	_check(not death_screen.visible, "#4 死亡界面还在延迟中，此刻不该显示")
 
@@ -132,7 +141,7 @@ func _test_issue_4_stale_death_screen() -> void:
 	# 新一局里再死一次，界面仍然要正常工作
 	var player2 := get_tree().get_first_node_in_group(&"player") as Player
 	player2.health.end_iframes()
-	player2.health.take_damage(DamageInfo.create(9999, Vector2.LEFT, null))
+	player2.health.take_damage(DamageInfo.new(9999, Vector2.LEFT, null))
 	await _frames(80)
 	_check(death_screen.visible, "#4 新一局死亡后界面正常显示")
 
@@ -177,7 +186,7 @@ func _test_issue_5_cell_reward_split() -> void:
 	await _frames(2)
 	var cells_before := Game.cells
 	var reward: int = brute.cell_reward
-	brute.health.take_damage(DamageInfo.create(99999, Vector2.RIGHT, null))
+	brute.health.take_damage(DamageInfo.new(99999, Vector2.RIGHT, null))
 	await _frames(150)
 	_check(Game.cells - cells_before == reward,
 		"#5 击杀 Brute 实际到手 %d（配置 %d）" % [Game.cells - cells_before, reward])

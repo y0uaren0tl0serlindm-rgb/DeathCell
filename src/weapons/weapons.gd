@@ -3,6 +3,11 @@ extends RefCounted
 ## 武器库。现在用代码定义，方便快速调数值；
 ## 定型之后可以在编辑器里另存为 .tres，交给策划/自己拖拽调整。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const AttackStep = preload("res://src/weapons/attack_step.gd")
+const WeaponData = preload("res://src/weapons/weapon_data.gd")
+
 static func _step(
 	windup: float, active: float, recovery: float,
 	dmg: float, lunge: float, knock: float,

@@ -3,6 +3,13 @@ extends CharacterBody2D
 ## 敌人基类：巡逻 → 发现玩家追击 → 进入攻击距离出招。
 ## 攻击一定有明显前摇（变红 + 停住），这样玩家才有翻滚/走位的读招空间。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const DamageInfo = preload("res://src/core/damage_info.gd")
+const Health = preload("res://src/core/health.gd")
+const Hitbox = preload("res://src/core/hitbox.gd")
+const Hurtbox = preload("res://src/core/hurtbox.gd")
+
 enum State { PATROL, CHASE, WINDUP, ATTACK, RECOVER, HURT, DEAD }
 
 const GRAVITY := 1400.0

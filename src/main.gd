@@ -1,6 +1,12 @@
 extends Node2D
 ## 游戏主循环：生成房间 → 放玩家进去 → 死亡/进门后重来。
 
+# 显式 preload 跨文件的全局类：不这样写就依赖 .godot/ 里的全局类缓存，
+# 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
+const CellPickup = preload("res://src/pickups/cell_pickup.gd")
+const Player = preload("res://src/player/player.gd")
+const Room = preload("res://src/level/room.gd")
+
 const RoomScene := preload("res://src/level/room.tscn")
 const PlayerScene := preload("res://src/player/player.tscn")
 const CellScene := preload("res://src/pickups/cell_pickup.tscn")
