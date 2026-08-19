@@ -54,6 +54,14 @@ func _ready() -> void:
 	await _frames(40)
 	_check(player.is_on_floor(), "新房间入口可站立")
 
+	# 回归：房间的 _draw() 铺满整块背景，新房间又是后加进 world 的，
+	# 所以房间必须待在玩家下面一层，否则换房间后玩家会被背景盖住看不见
+	var rooms := get_tree().root.find_children("*", "Room", true, false)
+	_check(rooms.size() == 1, "同时只存在一个房间 (%d)" % rooms.size())
+	if rooms.size() > 0:
+		_check((rooms[0] as Node2D).z_index < player.z_index,
+			"房间在玩家下层 (room z=%d, player z=%d)" % [(rooms[0] as Node2D).z_index, player.z_index])
+
 	# --- 死亡 ---
 	# 注意：GDScript 的 lambda 按值捕获局部变量，所以用数组当引用容器
 	var died := [false]
