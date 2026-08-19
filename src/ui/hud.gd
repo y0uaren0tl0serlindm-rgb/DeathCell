@@ -13,6 +13,10 @@ const BAR_WIDTH := 140.0
 @onready var death_stats: Label = $DeathScreen/Stats
 
 
+## 每开一局 +1。死亡界面的延迟协程靠它判断自己是不是已经过期（issue #4）。
+var _run_token := 0
+
+
 func _ready() -> void:
 	death_screen.visible = false
 	Events.player_health_changed.connect(_on_health_changed)
@@ -20,7 +24,7 @@ func _ready() -> void:
 	Events.depth_changed.connect(_on_depth_changed)
 	Events.player_weapon_changed.connect(_on_weapon_changed)
 	Events.player_died.connect(_on_player_died)
-	Events.request_restart_run.connect(func(): death_screen.visible = false)
+	Events.request_restart_run.connect(_on_restart_run)
 
 
 func _on_health_changed(current: int, maximum: int) -> void:
@@ -45,7 +49,16 @@ func _on_weapon_changed(weapon_name: String) -> void:
 	weapon_label.text = "%s   [K] 换武器" % weapon_name
 
 
+func _on_restart_run() -> void:
+	# 作废掉上一局还在等待的延迟任务，否则它醒来会把死亡界面盖到新一局上
+	_run_token += 1
+	death_screen.visible = false
+
+
 func _on_player_died() -> void:
+	var token := _run_token
 	death_stats.text = "深度 %d 层    细胞 %d\n\n[R] 重新开始" % [Game.depth + 1, Game.cells]
 	await get_tree().create_timer(0.8, true, false, true).timeout
+	if token != _run_token:
+		return   # 玩家已经重开了，这次死亡的界面不该再出现
 	death_screen.visible = true

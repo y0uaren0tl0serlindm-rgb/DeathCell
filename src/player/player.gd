@@ -72,6 +72,11 @@ var _combo_timer := 0.0          ## 距离上次攻击结束多久，超过 comb
 var _attack_phase: AttackPhase = AttackPhase.WINDUP
 var _phase_time := 0.0
 var _queued_attack := false      ## 后摇中已经预约了下一段
+## 本次攻击锁定的武器与招式。攻击一旦开始就只认这两个，
+## 中途换武器不会让伤害用旧武器、时间轴用新武器（issue #2）。
+var _active_weapon: WeaponData
+var _active_step: AttackStep
+var _queued_swap := false        ## 攻击中按了换武器，等这次攻击结束再生效
 
 # 表现
 var _squash := Vector2.ONE
@@ -124,6 +129,8 @@ func _tick_timers(delta: float) -> void:
 		_combo_timer += delta
 		if _combo_timer > weapon.combo_window:
 			_combo_index = 0
+			_active_weapon = null
+			_active_step = null
 
 
 func _read_input() -> void:
@@ -142,10 +149,15 @@ func _read_input() -> void:
 	if Input.is_action_just_released(&"jump") and velocity.y < -60.0:
 		velocity.y *= JUMP_CUT_MULT
 	if Input.is_action_just_pressed(&"swap_weapon"):
-		_swap_weapon()
+		# 攻击进行中不能立刻换 —— 排队到这次攻击结束再生效
+		if state == State.ATTACK:
+			_queued_swap = true
+		else:
+			_swap_weapon()
 
 
 func _swap_weapon() -> void:
+	_queued_swap = false
 	weapon_index = (weapon_index + 1) % weapons.size()
 	weapon = weapons[weapon_index]
 	_combo_index = 0
@@ -209,6 +221,7 @@ func _do_jump() -> void:
 # ---------------------------------------------------------------- 翻滚
 
 func _enter_roll() -> void:
+	var was_attacking := state == State.ATTACK
 	_set_state(State.ROLL)
 	_state_time = 0.0
 	_roll_buffer = 0.0
@@ -217,6 +230,8 @@ func _enter_roll() -> void:
 		facing = int(signf(_input_x))
 	velocity.x = facing * ROLL_SPEED
 	_squash = Vector2(1.25, 0.75)
+	if was_attacking:
+		_apply_queued_swap()
 
 
 func _process_roll(delta: float) -> void:
@@ -255,10 +270,12 @@ func _enter_attack(index: int) -> void:
 	if _input_x != 0.0:
 		facing = int(signf(_input_x))
 
-	var step := weapon.step(_combo_index)
+	_active_weapon = weapon
+	_active_step = _active_weapon.step(_combo_index)
+	var step := _active_step
 	velocity.x = facing * step.lunge
-	hitbox.damage = weapon.damage_of(_combo_index)
-	hitbox.crit_chance = weapon.crit_chance
+	hitbox.damage = _active_weapon.damage_of(_combo_index)
+	hitbox.crit_chance = _active_weapon.crit_chance
 	hitbox.knockback_force = step.knockback
 	hitbox.hitstop = step.hitstop
 	hitbox.knockback_dir = Vector2(facing, -0.25).normalized()
@@ -273,7 +290,7 @@ func _process_attack(delta: float) -> void:
 	else:
 		velocity.x = move_toward(velocity.x, _input_x * RUN_SPEED * 0.6, AIR_ACCEL * 0.5 * delta)
 
-	var step := weapon.step(_combo_index)
+	var step := _active_step
 	_phase_time += delta
 
 	match _attack_phase:
@@ -309,6 +326,14 @@ func _end_attack() -> void:
 	_combo_timer = 0.0
 	_combo_index += 1
 	_set_state(State.IDLE if is_on_floor() else State.FALL)
+	_apply_queued_swap()
+
+
+## 攻击彻底结束（不是连招中途）后才真正换武器。
+## 连招内部的取消接续仍算同一次攻击序列，保持用同一把武器。
+func _apply_queued_swap() -> void:
+	if _queued_swap:
+		_swap_weapon()
 
 
 # ---------------------------------------------------------------- 受击 / 死亡
@@ -323,6 +348,7 @@ func _on_damaged(info: DamageInfo) -> void:
 	_set_state(State.HURT)
 	_state_time = 0.0
 	FX.shake(0.5)
+	_apply_queued_swap()
 
 
 func _process_hurt(delta: float) -> void:
@@ -373,10 +399,10 @@ func _update_visual(delta: float) -> void:
 	eye_rect.position.x = 1.0 if facing > 0 else -5.0
 
 	# 刀光：只在判定阶段显示
-	var showing := state == State.ATTACK and _attack_phase == AttackPhase.ACTIVE
+	var showing := state == State.ATTACK and _attack_phase == AttackPhase.ACTIVE and _active_step != null
 	blade_rect.visible = showing
 	if showing:
-		var step := weapon.step(_combo_index)
+		var step := _active_step
 		blade_rect.size = step.hitbox_size
 		blade_rect.position = Vector2(
 			step.hitbox_offset.x * facing - step.hitbox_size.x * 0.5,

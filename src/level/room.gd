@@ -15,6 +15,8 @@ const DoorScene := preload("res://src/level/door.tscn")
 @onready var entities: Node2D = $Entities
 
 var grid: LevelGrid
+## 这个房间实际是用哪个深度生成的（测试用来核对深度与生成参数一致）
+var generated_depth := -1
 var entrance_position: Vector2
 var exit_position: Vector2
 
@@ -26,6 +28,7 @@ var _tile_top_color := Color(0.34, 0.32, 0.46)
 
 func generate(rng: RandomNumberGenerator, depth: int) -> void:
 	_rng = rng
+	generated_depth = depth
 	# 越深色调越冷，简单地做出"生物群系"的差异感
 	var hue := fposmod(0.62 + depth * 0.07, 1.0)
 	_bg_color = Color.from_hsv(hue, 0.35, 0.13)

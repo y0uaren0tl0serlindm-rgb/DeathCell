@@ -27,6 +27,7 @@ git push origin main && git push github main
 godot --path .                                            # 直接开玩
 godot --headless --path . res://tests/smoke_test.tscn     # 冒烟测试：核心链路 15 项
 godot --headless --path . res://tests/generation_test.tscn # 关卡校验：1800 个房间可通行
+godot --headless --path . res://tests/regression_test.tscn # 回归测试：已修 issue 不复发
 ```
 
 改了带 `class_name` 的脚本后如果命令行报 "Could not find type X"，
@@ -60,6 +61,7 @@ src/
   fx/         game_camera.gd, damage_number.gd
   main.gd     房间 ↔ 玩家 ↔ 死亡重开的编排
 tests/        smoke_test（核心链路）, generation_test（关卡可通行性）
+              regression_test（每项对应一个已修 issue）
 ```
 
 ## 调手感看这里

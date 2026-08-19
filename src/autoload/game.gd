@@ -10,9 +10,21 @@ var rng := RandomNumberGenerator.new()
 ## meta 进度（跨 run 保留），后续接存档
 var meta_blueprints: Array[String] = []
 
+const MAX_CELL_DROPS := 5
 
-func _ready() -> void:
-	Events.request_next_room.connect(_on_request_next_room)
+
+## 把击杀奖励拆成若干颗掉落物。余数要摊到前几颗上 ——
+## 直接整除会把 8 拆成 5 颗 ×1 = 5，凭空吞掉 3 个细胞（issue #5）。
+static func split_cell_reward(reward: int, max_drops: int = MAX_CELL_DROPS) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if reward <= 0:
+		return out
+	var drops := clampi(reward, 1, maxi(max_drops, 1))
+	var base := reward / drops
+	var remainder := reward % drops
+	for i in drops:
+		out.append(base + (1 if i < remainder else 0))
+	return out
 
 
 func start_new_run(seed_value: int = 0) -> void:
@@ -37,7 +49,11 @@ func spend_cells(amount: int) -> bool:
 	return true
 
 
-func _on_request_next_room() -> void:
+## 推进到下一层。**只应该由 Main 这个流程协调者调用**。
+## 以前这里挂在 Events.request_next_room 上，和 Main 的监听器抢执行顺序 ——
+## 谁先跑决定了房间用新深度还是旧深度生成（issue #3）。信号只负责"通知"，
+## 状态推进和房间生成的先后必须写死在一个地方。
+func advance_depth() -> void:
 	depth += 1
 	Events.depth_changed.emit(depth)
 

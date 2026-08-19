@@ -51,8 +51,11 @@ func _spawn_player() -> void:
 	player.set_camera_limits(Rect2(Vector2.ZERO, room.world_size()))
 
 
-## 进门：换新房间，玩家保留血量与武器
+## 进门：换新房间，玩家保留血量与武器。
+## 顺序是写死的 —— 先推进深度，再用新深度生成房间。
+## 不能让 Game 也去监听 request_next_room，那样正确性就取决于谁先注册（issue #3）。
 func _on_next_room() -> void:
+	Game.advance_depth()
 	_build_room()
 	if player and is_instance_valid(player):
 		player.reset_for_room(room.entrance_position)
@@ -61,10 +64,8 @@ func _on_next_room() -> void:
 
 func _on_enemy_died(world_pos: Vector2, reward: int) -> void:
 	# 拆成几颗掉落，视觉上更有"爆开"的感觉
-	var drops := clampi(reward, 1, 5)
-	var per := maxi(reward / drops, 1)
-	for i in drops:
+	for value in Game.split_cell_reward(reward):
 		var cell := CellScene.instantiate() as CellPickup
 		world.add_child(cell)
 		cell.global_position = world_pos + Vector2(randf_range(-4, 4), -12)
-		cell.setup(per, Vector2(randf_range(-90, 90), randf_range(-190, -110)))
+		cell.setup(value, Vector2(randf_range(-90, 90), randf_range(-190, -110)))
