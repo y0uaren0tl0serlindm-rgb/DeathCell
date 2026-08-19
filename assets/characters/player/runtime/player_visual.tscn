@@ -1,0 +1,17 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/characters/player/concepts/deathcell_hero_sprite_master_v2.png" id="1_hero"]
+[ext_resource type="Script" path="res://assets/characters/player/runtime/hero_sprite.gd" id="2_script"]
+[ext_resource type="Shader" path="res://assets/characters/player/runtime/hero_flash.gdshader" id="3_shader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_hero"]
+resource_local_to_scene = true
+shader = ExtResource("3_shader")
+
+[node name="HeroSprite" type="Sprite2D"]
+texture_filter = 1
+material = SubResource("ShaderMaterial_hero")
+position = Vector2(0, -12)
+scale = Vector2(0.022, 0.022)
+texture = ExtResource("1_hero")
+script = ExtResource("2_script")
