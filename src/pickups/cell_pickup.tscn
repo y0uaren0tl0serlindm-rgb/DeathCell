@@ -1,0 +1,30 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/pickups/cell_pickup.gd" id="1_cell"]
+
+[sub_resource type="CircleShape2D" id="cell_shape"]
+radius = 6.0
+
+[node name="CellPickup" type="Area2D"]
+collision_layer = 32
+collision_mask = 2
+script = ExtResource("1_cell")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("cell_shape")
+
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="Core" type="ColorRect" parent="Visual"]
+offset_left = -2.0
+offset_top = -2.0
+offset_right = 2.0
+offset_bottom = 2.0
+color = Color(0.5, 1, 0.75, 1)
+
+[node name="Glow" type="ColorRect" parent="Visual"]
+offset_left = -4.0
+offset_top = -4.0
+offset_right = 4.0
+offset_bottom = 4.0
+color = Color(0.35, 0.9, 0.65, 0.35)

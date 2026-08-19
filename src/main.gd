@@ -1,0 +1,70 @@
+extends Node2D
+## 游戏主循环：生成房间 → 放玩家进去 → 死亡/进门后重来。
+
+const RoomScene := preload("res://src/level/room.tscn")
+const PlayerScene := preload("res://src/player/player.tscn")
+const CellScene := preload("res://src/pickups/cell_pickup.tscn")
+
+@onready var world: Node2D = $World
+
+var room: Room
+var player: Player
+var _run_over := false
+
+
+func _ready() -> void:
+	Events.request_next_room.connect(_on_next_room)
+	Events.enemy_died.connect(_on_enemy_died)
+	Events.player_died.connect(func(): _run_over = true)
+	_start_run()
+
+
+func _process(_delta: float) -> void:
+	# 用轮询而不是 _unhandled_input：不会被任何 UI 节点吞掉按键
+	if _run_over and Input.is_action_just_pressed(&"restart"):
+		Events.request_restart_run.emit()
+		_start_run()
+
+
+func _start_run() -> void:
+	_run_over = false
+	Engine.time_scale = 1.0
+	Game.start_new_run()
+	_build_room()
+	_spawn_player()
+
+
+func _build_room() -> void:
+	if room and is_instance_valid(room):
+		room.queue_free()
+	room = RoomScene.instantiate() as Room
+	world.add_child(room)
+	room.generate(Game.room_rng(), Game.depth)
+
+
+func _spawn_player() -> void:
+	if player and is_instance_valid(player):
+		player.queue_free()
+	player = PlayerScene.instantiate() as Player
+	world.add_child(player)
+	player.global_position = room.entrance_position
+	player.set_camera_limits(Rect2(Vector2.ZERO, room.world_size()))
+
+
+## 进门：换新房间，玩家保留血量与武器
+func _on_next_room() -> void:
+	_build_room()
+	if player and is_instance_valid(player):
+		player.reset_for_room(room.entrance_position)
+		player.set_camera_limits(Rect2(Vector2.ZERO, room.world_size()))
+
+
+func _on_enemy_died(world_pos: Vector2, reward: int) -> void:
+	# 拆成几颗掉落，视觉上更有"爆开"的感觉
+	var drops := clampi(reward, 1, 5)
+	var per := maxi(reward / drops, 1)
+	for i in drops:
+		var cell := CellScene.instantiate() as CellPickup
+		world.add_child(cell)
+		cell.global_position = world_pos + Vector2(randf_range(-4, 4), -12)
+		cell.setup(per, Vector2(randf_range(-90, 90), randf_range(-190, -110)))

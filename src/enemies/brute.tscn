@@ -1,0 +1,89 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://src/enemies/enemy.gd" id="1_enemy"]
+[ext_resource type="Script" path="res://src/core/health.gd" id="2_health"]
+[ext_resource type="Script" path="res://src/core/hurtbox.gd" id="3_hurtbox"]
+[ext_resource type="Script" path="res://src/core/hitbox.gd" id="4_hitbox"]
+
+[sub_resource type="RectangleShape2D" id="body_shape"]
+size = Vector2(18, 28)
+
+[sub_resource type="RectangleShape2D" id="hurt_shape"]
+size = Vector2(20, 29)
+
+[sub_resource type="RectangleShape2D" id="attack_shape"]
+resource_local_to_scene = true
+size = Vector2(38, 30)
+
+[node name="Brute" type="CharacterBody2D"]
+collision_layer = 4
+collision_mask = 1
+floor_snap_length = 6.0
+script = ExtResource("1_enemy")
+move_speed = 38.0
+chase_speed = 72.0
+detect_range = 190.0
+attack_range = 42.0
+attack_windup = 0.62
+attack_active = 0.18
+attack_recover = 0.7
+attack_lunge = 230.0
+attack_damage = 22
+cell_reward = 8
+base_color = Color(0.6, 0.25, 0.55, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -14)
+shape = SubResource("body_shape")
+
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="Body" type="ColorRect" parent="Visual"]
+offset_left = -9.0
+offset_top = -28.0
+offset_right = 9.0
+offset_bottom = 0.0
+color = Color(0.6, 0.25, 0.55, 1)
+
+[node name="Eye" type="ColorRect" parent="Visual"]
+offset_left = 3.0
+offset_top = -23.0
+offset_right = 7.0
+offset_bottom = -19.0
+color = Color(0.12, 0.08, 0.14, 1)
+
+[node name="Health" type="Node" parent="."]
+script = ExtResource("2_health")
+max_health = 110
+
+[node name="Hurtbox" type="Area2D" parent="."]
+collision_layer = 16
+collision_mask = 0
+monitoring = false
+script = ExtResource("3_hurtbox")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+position = Vector2(0, -14)
+shape = SubResource("hurt_shape")
+
+[node name="AttackHitbox" type="Area2D" parent="."]
+collision_layer = 0
+collision_mask = 8
+monitoring = false
+script = ExtResource("4_hitbox")
+knockback_force = 380.0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="AttackHitbox"]
+position = Vector2(20, -14)
+shape = SubResource("attack_shape")
+disabled = true
+
+[node name="FloorCheck" type="RayCast2D" parent="."]
+position = Vector2(12, -4)
+target_position = Vector2(0, 18)
+collision_mask = 1
+
+[node name="WallCheck" type="RayCast2D" parent="."]
+position = Vector2(0, -14)
+target_position = Vector2(14, 0)
+collision_mask = 1

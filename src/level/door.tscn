@@ -1,0 +1,42 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/level/door.gd" id="1_door"]
+
+[sub_resource type="RectangleShape2D" id="door_shape"]
+size = Vector2(28, 40)
+
+[node name="Door" type="Area2D"]
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("1_door")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -20)
+shape = SubResource("door_shape")
+
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="Frame" type="ColorRect" parent="Visual"]
+offset_left = -11.0
+offset_top = -38.0
+offset_right = 11.0
+offset_bottom = 0.0
+color = Color(0.15, 0.13, 0.2, 1)
+
+[node name="Glow" type="ColorRect" parent="Visual"]
+offset_left = -8.0
+offset_top = -34.0
+offset_right = 8.0
+offset_bottom = -2.0
+color = Color(0.45, 0.95, 0.8, 0.75)
+
+[node name="Prompt" type="Label" parent="."]
+offset_left = -40.0
+offset_top = -62.0
+offset_right = 40.0
+offset_bottom = -44.0
+theme_override_font_sizes/font_size = 11
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+text = "[E] 下一层"
+horizontal_alignment = 1
