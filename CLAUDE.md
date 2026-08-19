@@ -24,12 +24,17 @@ git push origin main && git push github main
 ## 运行
 
 ```bash
+godot --headless --path . --import                        # 首次克隆后跑一次（导入美术素材）
 godot --path .                                            # 直接开玩
 godot --headless --path . res://tests/smoke_test.tscn     # 冒烟测试：核心链路 15 项
 godot --headless --path . res://tests/generation_test.tscn # 关卡校验：1800 个房间可通行
 godot --headless --path . res://tests/regression_test.tscn # 回归测试：已修 issue 不复发
 bash tests/cold_start_check.sh                            # 冷启动：无缓存也能起
 ```
+
+首次克隆或新增了图片/音频等二进制素材后，要跑一次 `--import` 把它们转成引擎格式
+（性质等同 `npm install`，是可脚本化的命令，不需要打开编辑器）。
+纯改代码不需要重跑。
 
 ### 引用别的脚本要显式 preload
 

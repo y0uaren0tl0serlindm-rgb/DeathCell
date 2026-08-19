@@ -53,19 +53,28 @@ echo "冷启动检查：$PROJECT_DIR → $TMP_DIR"
 copy_sources
 [ -d "$TMP_DIR/.godot" ] && { echo "失败：临时目录里不该有 .godot/"; exit 1; }
 
+# 一次性构建步骤：把 PNG 之类的二进制素材导入成引擎格式。
+# 这一步是 Godot 资源流水线的固有要求（跟 npm install 同性质），
+# 有美术素材之后无法省略；它是可脚本化的命令，不需要打开编辑器。
 echo
-echo "[1] 干净检出（完全没有 .godot/）"
-run_phase "直接启动游戏" --quit-after 60
+echo "[0] 首次导入素材（godot --import）"
+if ! "$GODOT" --headless --path "$TMP_DIR" --import >/dev/null 2>&1; then
+	echo "  FAIL  导入失败"
+	exit 1
+fi
+echo "  PASS  导入完成"
 
 echo
-echo "[2] 缓存过期（.godot/ 存在但类表是空的）—— issue #8 报的就是这种"
-mkdir -p "$TMP_DIR/.godot"
-echo "list=[]" > "$TMP_DIR/.godot/global_script_class_cache.cfg"
-run_phase "直接启动游戏" --quit-after 60
+echo "[1] 导入后直接启动"
+run_phase "启动游戏" --quit-after 60
 
+# 真正要守的是这条：全局类缓存不可信。
+# 干净检出、或者别人 pull 到含新 class_name 的代码而没重新导入，
+# 缓存就是缺的/过期的 —— issue #8 报的正是这种。纹理保留、只把类表干掉。
 echo
-echo "[3] 冷启动下跑测试（不允许要求先手动预热编辑器）"
-rm -rf "$TMP_DIR/.godot"
+echo "[2] 类缓存缺失（纹理已导入）—— issue #8 的场景"
+rm -f "$TMP_DIR/.godot/global_script_class_cache.cfg"
+run_phase "启动游戏" --quit-after 60
 run_phase "冒烟测试" res://tests/smoke_test.tscn
 run_phase "生成测试" res://tests/generation_test.tscn
 run_phase "回归测试" res://tests/regression_test.tscn
