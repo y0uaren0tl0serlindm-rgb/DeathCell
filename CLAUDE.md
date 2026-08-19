@@ -1,4 +1,4 @@
-# DeathCell — 类死亡细胞 2D 动作 Roguelite
+# DeathCell — 类死亡细胞 2D 动作
 
 Godot 4.7 / GDScript。目前是一个**可玩的垂直切片**：手感 → 战斗 → 程序化关卡 → 死亡循环这条主链路已经打通，
 美术全部是占位色块（ColorRect + `_draw()`），换成真实素材不需要改逻辑。
