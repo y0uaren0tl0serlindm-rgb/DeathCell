@@ -14,11 +14,14 @@ The protagonist is an escaped prisoner whose body is partially infused with cell
 
 - `concepts/deathcell_hero_anchor_v1.png`: high-detail design anchor.
 - `concepts/deathcell_hero_sprite_master_v2.png`: simplified transparent pixel-art sprite master.
+- `animations/deathcell_hero_roll_v1.png`: curled transparent roll-action pose.
 - `runtime/player_visual.tscn`: self-contained visual scene instanced by the player scene.
 - `runtime/hero_sprite.gd`: presentation-only facing and feedback adapter.
 - `runtime/hero_flash.gdshader`: sprite hit-flash material.
 - `../../../art/previews/deathcell_hero_checkerboard_preview_v1.png`: review preview on a light checkerboard.
 - `../../../art/previews/runtime_player_v1.png`: captured in-game integration preview.
+- `../../../art/previews/runtime_roll_v1.png`: deterministic in-game roll-action capture.
+- `../../../art/tests/roll_visual_test.tscn`: art-only roll texture, pivot, and recovery check.
 
 The runtime visual scene is connected to `src/player/player.tscn`. It does not modify player movement,
 combat, collision, health, weapon data, or any existing gameplay script.
@@ -34,6 +37,6 @@ combat, collision, health, weapon data, or any existing gameplay script.
 ## Next art pass
 
 1. Reduce the sprite master onto the final 48 x 48 pixel grid; the current runtime pass scales the master texture.
-2. Produce idle, run, jump, fall, roll, hurt, and death key poses.
+2. Produce idle, run, jump, fall, hurt, and death key poses. The first roll pose is implemented.
 3. Produce the three rusty-sword attack sequences.
 4. Export a transparent sprite sheet and a visual-only preview scene.
