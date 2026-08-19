@@ -13,6 +13,7 @@ const Enemy = preload("res://src/enemies/enemy.gd")
 const Player = preload("res://src/player/player.gd")
 const Room = preload("res://src/level/room.gd")
 const WeaponData = preload("res://src/weapons/weapon_data.gd")
+const Weapons = preload("res://src/weapons/weapons.gd")
 
 const MainScene := preload("res://src/main.tscn")
 
@@ -30,6 +31,7 @@ func _ready() -> void:
 	await _test_issue_4_stale_death_screen()
 	await _test_issue_5_cell_reward_split()
 	await _test_issue_6_room_transition_clears_queue()
+	await _test_issue_9_intent_slot()
 
 	if _failures.is_empty():
 		print("\n回归测试全部通过")
@@ -203,7 +205,7 @@ func _test_issue_6_room_transition_clears_queue() -> void:
 	var weapon_before: WeaponData = player.weapon
 	var hp_before: int = player.health.current
 
-	# 攻击中排队换武器 + 排队下一段连招
+	# 攻击中先预约续击，再用换武器把它覆盖掉（意图槽只留最后一个）
 	Input.action_press(&"attack")
 	await _frames(1)
 	Input.action_release(&"attack")
@@ -211,22 +213,17 @@ func _test_issue_6_room_transition_clears_queue() -> void:
 	if player.state != Player.State.ATTACK:
 		_fail("#6 没能进入攻击状态")
 		return
-	Input.action_press(&"swap_weapon")
-	await _frames(1)
-	Input.action_release(&"swap_weapon")
-	Input.action_press(&"attack")
-	await _frames(1)
-	Input.action_release(&"attack")
-	await _frames(1)
-	_check(player._queued_swap, "#6 攻击中按 K 确实进入了排队状态")
+	await _tap(&"attack")
+	_check(player._pending_intent == Player.Intent.ATTACK, "#6 攻击中按攻击进入意图槽")
+	await _tap(&"swap_weapon")
+	_check(player._pending_intent == Player.Intent.SWAP, "#6 换武器覆盖了尚未开始的续击")
 
 	# 攻击还没结束就进门
 	_check(player.state == Player.State.ATTACK, "#6 进门时仍在攻击中")
 	Events.request_next_room.emit()
 	await _frames(6)
 
-	_check(not player._queued_swap, "#6 进新房间后排队换武器已清除")
-	_check(not player._queued_attack, "#6 进新房间后排队连招已清除")
+	_check(player._pending_intent == Player.Intent.NONE, "#6 进新房间后待执行意图已清除")
 	_check(player._active_step == null and player._active_weapon == null,
 		"#6 进新房间后攻击上下文已清除")
 	_check(player.weapon == weapon_before,
@@ -243,6 +240,124 @@ func _test_issue_6_room_transition_clears_queue() -> void:
 	await _frames(30)
 	_check(player.weapon == weapon_before,
 		"#6 新房间攻击结束后没有触发遗留的换武器（%s）" % player.weapon.display_name)
+
+
+# ---------------------------------------------------------------- #9
+
+## 攻击输入的意图槽：只留一个、可被覆盖、不过期、连招有终点
+func _test_issue_9_intent_slot() -> void:
+	print("\n[#9] 攻击意图槽")
+	var player := get_tree().get_first_node_in_group(&"player") as Player
+
+	# --- A. 第一击内狂点，最多只多打出一击 ---
+	_equip(player, Weapons.heavy_hammer())     # 重锤第一击够长，塞得下 10 次点击
+	await _wait_until_idle(player)
+	await _tap(&"attack")
+	await _frames(2)
+	var max_index := 0
+	for i in 10:
+		await _tap(&"attack")
+		max_index = maxi(max_index, player._combo_index)
+	var left_attack := await _run_until_idle(player, 200)
+	max_index = maxi(max_index, left_attack)
+	_check(max_index <= 1, "#9 第一击内点 10 次最多只多打出一击（最远打到第 %d 段）" % (max_index + 1))
+
+	# --- B. 分布点击也不能越过末段无限循环 ---
+	_equip(player, Weapons.rusty_sword())      # 三段连招
+	await _wait_until_idle(player)
+	var seen_idle := false
+	var deepest := 0
+	for i in 90:                                # 约 1.5 秒，每 3 帧点一次
+		if i % 3 == 0:
+			Input.action_press(&"attack")
+		else:
+			Input.action_release(&"attack")
+		await get_tree().physics_frame
+		if player.state == Player.State.ATTACK:
+			deepest = maxi(deepest, player._combo_index)
+		else:
+			seen_idle = true
+	Input.action_release(&"attack")
+	_check(deepest <= 2, "#9 持续点击没有越过三段连招的末段（最远第 %d 段）" % (deepest + 1))
+	_check(seen_idle, "#9 连招打完会退出攻击状态，不是一直循环")
+
+	# --- C. 更新的意图能覆盖尚未开始的续击 ---
+	for case in [[&"roll", Player.Intent.ROLL], [&"jump", Player.Intent.JUMP],
+			[&"swap_weapon", Player.Intent.SWAP], [&"move_left", Player.Intent.MOVE]]:
+		await _equip(player, Weapons.heavy_hammer())
+		await _wait_until_idle(player)
+		await _tap(&"attack")
+		await _frames(3)
+		await _tap(&"attack")
+		if player._pending_intent != Player.Intent.ATTACK:
+			_fail("#9 覆盖测试的前置条件没满足（%s）" % case[0])
+			continue
+		await _tap(case[0])
+		_check(player._pending_intent == case[1],
+			"#9 %s 覆盖了尚未开始的续击" % case[0])
+		await _run_until_idle(player, 200)
+
+	# --- D. 起手就按翻滚不会过期（复现方式 B）---
+	for w in [Weapons.rusty_sword(), Weapons.heavy_hammer()]:
+		await _equip(player, w)
+		await _wait_until_idle(player)
+		await _tap(&"attack")
+		await _tap(&"roll")                     # 远早于取消点
+		var rolled := false
+		for i in 120:
+			await get_tree().physics_frame
+			if player.state == Player.State.ROLL:
+				rolled = true
+				break
+		_check(rolled, "#9 %s 起手按翻滚仍能在取消点执行" % w.display_name)
+		await _run_until_idle(player, 200)
+
+	# --- E. 显式配置的循环连招 ---
+	var looping := Weapons.rusty_sword()
+	looping.loops = true
+	looping.display_name = "测试用循环武器"
+	await _equip(player, looping)
+	await _wait_until_idle(player)
+	var looped := false
+	for i in 120:
+		if i % 3 == 0:
+			Input.action_press(&"attack")
+		else:
+			Input.action_release(&"attack")
+		await get_tree().physics_frame
+		if player.state == Player.State.ATTACK and player._combo_index >= looping.combo.size():
+			looped = true
+			break
+	Input.action_release(&"attack")
+	_check(looped, "#9 显式开启 loops 的武器可以循环连招")
+	await _equip(player, Weapons.rusty_sword())
+	await _run_until_idle(player, 200)
+
+
+func _equip(player: Player, w: WeaponData) -> void:
+	# 别在出招途中换 —— 那是 issue #2 明确禁止的事
+	await _run_until_idle(player, 200)
+	player.weapon = w
+	player.clear_transient_state()
+
+
+## 按一下再松开
+func _tap(action: StringName) -> void:
+	Input.action_press(action)
+	await get_tree().physics_frame
+	Input.action_release(action)
+	await get_tree().physics_frame
+
+
+## 跑到玩家离开攻击状态为止，返回过程中最深的连招段号
+func _run_until_idle(player: Player, max_frames: int) -> int:
+	var deepest := 0
+	for i in max_frames:
+		if player.state != Player.State.ATTACK:
+			return deepest
+		deepest = maxi(deepest, player._combo_index)
+		await get_tree().physics_frame
+	return deepest
 
 
 # ---------------------------------------------------------------- 工具

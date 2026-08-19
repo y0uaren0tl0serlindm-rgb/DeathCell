@@ -89,9 +89,17 @@ tests/        smoke_test（核心链路）, generation_test（关卡可通行性
   地形生成是按这些值反推约束的，不同步就会生成玩家跳不上去的地形。
   这几个常量之间有硬约束（`PLATFORM_CLEARANCE + 1 <= JUMP_UP`），
   generation_test 开头会直接断言，改完跑一遍就知道有没有破坏配合。
-- **玩家的瞬时状态**：新增任何 `_queued_*` / `_active_*` / 输入缓冲字段，
+- **玩家的瞬时状态**：新增任何 `_pending_*` / `_active_*` / 输入缓冲字段，
   都要加进 `player.gd` 的 `clear_transient_state()`。
   漏了它就会跨房间泄漏，在下一次攻击结束时莫名其妙地生效（issue #6）。
+- **攻击中的输入**：走 `_pending_intent` 意图槽，不走定时缓冲。
+  槽里永远只留最后按下的那一个，到攻击的取消点再兑现。
+  两条理由：定时缓冲会在取消点之前过期（重锤取消点 0.54 秒 > 缓冲 0.15 秒），
+  以及玩家必须能改主意 —— 新意图要能覆盖尚未开始的续击（issue #9）。
+  加新动作时在 `Intent` 里加一项，并在 `_consume_intent_at_cancel_point()`
+  / `_resolve_intent_after_attack()` 里决定它是"截断后摇"还是"等这一击打完"。
+- **连招循环**：`WeaponData.loops` 默认 false，末段之后退出攻击状态。
+  要循环必须显式打开 —— 以前用 `index % size` 隐式循环，导致连点就能无限续招。
 - **武器连招**：`src/weapons/weapons.gd`。每段招式是 前摇 / 判定 / 后摇 三个时间片，
   `cancel_after` 决定后摇进行到多少比例可以被下一段或翻滚取消 —— 这个值决定了整套战斗的节奏。
 - **打击感**：`src/autoload/fx.gd`（顿帧时长、震屏强度）。
@@ -111,6 +119,11 @@ tests/        smoke_test（核心链路）, generation_test（关卡可通行性
 
 Hitbox 只 `monitoring`，Hurtbox 只 `monitorable` —— 攻击方主动检测，受击方被动挨打，
 一次挥击对同一目标只结算一次（`Hitbox.activate()` 会清空命中表）。
+
+⚠️ 在 `area_entered` / `body_entered` 回调里**不能直接**改 `monitoring` / `monitorable`
+或增删带碰撞体的节点 —— 那是物理查询期，引擎会拒绝并报错。
+命中 → 扣血 → 死亡这条链全在回调里，所以相关操作一律用
+`set_deferred()` / `call_deferred()`。
 
 ## 美术素材规格（给美术同学）
 

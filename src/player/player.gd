@@ -20,6 +20,13 @@ const Weapons = preload("res://src/weapons/weapons.gd")
 enum State { IDLE, RUN, JUMP, FALL, ROLL, ATTACK, HURT, DEAD }
 enum AttackPhase { WINDUP, ACTIVE, RECOVERY }
 
+## 攻击进行中按下的键存进这里，到取消点再兑现。
+## 规则只有一条：**永远只留最后按的那一个**（issue #9）。
+## 以前是两个各自独立的布尔预约位，谁也覆盖不了谁，
+## 于是"想改主意"这件事做不到 —— 玩家感觉像卡在攻击动画里。
+## MOVE 不产生动作，它的作用是把尚未开始的续击清掉。
+enum Intent { NONE, MOVE, ATTACK, ROLL, JUMP, SWAP }
+
 # --- 移动 ---
 const RUN_SPEED := 190.0
 const GROUND_ACCEL := 2400.0
@@ -81,12 +88,11 @@ var _combo_index := 0
 var _combo_timer := 0.0          ## 距离上次攻击结束多久，超过 combo_window 连招重置
 var _attack_phase: AttackPhase = AttackPhase.WINDUP
 var _phase_time := 0.0
-var _queued_attack := false      ## 后摇中已经预约了下一段
+var _pending_intent: Intent = Intent.NONE   ## 攻击中唯一的待执行意图
 ## 本次攻击锁定的武器与招式。攻击一旦开始就只认这两个，
 ## 中途换武器不会让伤害用旧武器、时间轴用新武器（issue #2）。
 var _active_weapon: WeaponData
 var _active_step: AttackStep
-var _queued_swap := false        ## 攻击中按了换武器，等这次攻击结束再生效
 
 # 表现
 var _squash := Vector2.ONE
@@ -149,25 +155,43 @@ func _read_input() -> void:
 		return
 	_input_x = Input.get_axis(&"move_left", &"move_right")
 	_jump_held = Input.is_action_pressed(&"jump")
+
+	# 攻击中的输入走"意图槽"，攻击外的走定时缓冲。
+	# 分开的原因：定时缓冲会过期，而攻击的取消点可能远晚于缓冲时长
+	# —— 重锤第一击的取消点在 0.54 秒，0.15 秒的翻滚缓冲早没了（issue #9）。
+	# 意图槽不设过期，一直留到取消点。
+	var attacking := state == State.ATTACK
+
 	if Input.is_action_just_pressed(&"jump"):
-		_jump_buffer = JUMP_BUFFER_TIME
+		if attacking: _set_intent(Intent.JUMP)
+		else: _jump_buffer = JUMP_BUFFER_TIME
 	if Input.is_action_just_pressed(&"attack"):
-		_attack_buffer = INPUT_BUFFER_TIME
+		if attacking: _set_intent(Intent.ATTACK)
+		else: _attack_buffer = INPUT_BUFFER_TIME
 	if Input.is_action_just_pressed(&"roll"):
-		_roll_buffer = INPUT_BUFFER_TIME
+		if attacking: _set_intent(Intent.ROLL)
+		else: _roll_buffer = INPUT_BUFFER_TIME
+	if Input.is_action_just_pressed(&"swap_weapon"):
+		if attacking: _set_intent(Intent.SWAP)
+		else: _swap_weapon()
+	# 新按下方向键 = 改主意了，把还没开始的续击清掉。
+	# 用"刚按下"而不是"按住"：按住方向打连招是常规操作，不该被当成放弃续击。
+	if attacking and (Input.is_action_just_pressed(&"move_left")
+			or Input.is_action_just_pressed(&"move_right")):
+		_set_intent(Intent.MOVE)
+
 	# 松开跳跃键立刻截断上升速度 —— 可变跳跃高度
 	if Input.is_action_just_released(&"jump") and velocity.y < -60.0:
 		velocity.y *= JUMP_CUT_MULT
-	if Input.is_action_just_pressed(&"swap_weapon"):
-		# 攻击进行中不能立刻换 —— 排队到这次攻击结束再生效
-		if state == State.ATTACK:
-			_queued_swap = true
-		else:
-			_swap_weapon()
+
+
+## 后按的覆盖先按的，槽里永远只有一个。
+## 这里刻意不做优先级表：规则越简单，玩家越能预测"我最后按的那个会生效"。
+func _set_intent(intent: Intent) -> void:
+	_pending_intent = intent
 
 
 func _swap_weapon() -> void:
-	_queued_swap = false
 	weapon_index = (weapon_index + 1) % weapons.size()
 	weapon = weapons[weapon_index]
 	_combo_index = 0
@@ -241,7 +265,7 @@ func _enter_roll() -> void:
 	velocity.x = facing * ROLL_SPEED
 	_squash = Vector2(1.25, 0.75)
 	if was_attacking:
-		_apply_queued_swap()
+		_resolve_intent_after_attack()
 
 
 func _process_roll(delta: float) -> void:
@@ -269,13 +293,16 @@ func _process_roll(delta: float) -> void:
 # ---------------------------------------------------------------- 攻击
 
 func _enter_attack(index: int) -> void:
+	# 上一套连招已经打完时索引会越界，重新起一套
+	if not weapon.has_step(index):
+		index = 0
 	_combo_index = index
 	_set_state(State.ATTACK)
 	_state_time = 0.0
 	_phase_time = 0.0
 	_attack_phase = AttackPhase.WINDUP
 	_attack_buffer = 0.0
-	_queued_attack = false
+	_pending_intent = Intent.NONE
 
 	if _input_x != 0.0:
 		facing = int(signf(_input_x))
@@ -300,6 +327,11 @@ func _process_attack(delta: float) -> void:
 	else:
 		velocity.x = move_toward(velocity.x, _input_x * RUN_SPEED * 0.6, AIR_ACCEL * 0.5 * delta)
 
+	# clear_transient_state() 可能在攻击途中被调用（换房间、外部重置），
+	# 那之后就没有合法的招式数据了 —— 直接收招，别让状态机带着空指针跑。
+	if _active_step == null:
+		_end_attack()
+		return
 	var step := _active_step
 	_phase_time += delta
 
@@ -316,19 +348,40 @@ func _process_attack(delta: float) -> void:
 				hitbox.deactivate()
 		AttackPhase.RECOVERY:
 			var cancellable := _phase_time >= step.recovery * step.cancel_after
-			# 翻滚永远优先：它是取消后摇的万能手段
-			if cancellable and _roll_buffer > 0.0 and _roll_cooldown <= 0.0:
-				_enter_roll()
-				return
-			if _attack_buffer > 0.0:
-				_queued_attack = true
-				_attack_buffer = 0.0
-			if cancellable and _queued_attack:
-				_combo_timer = 0.0
-				_enter_attack(_combo_index + 1)
+			if cancellable and _consume_intent_at_cancel_point():
 				return
 			if _phase_time >= step.recovery:
 				_end_attack()
+
+
+## 到了取消点，兑现槽里的那个意图。返回 true 表示已经转去别的状态。
+##
+## 只有翻滚和跳跃会真的截断后摇 —— 它们是"取消"。
+## 换武器和移动不截断：当前这一击仍然打完，保留出招的承诺感，
+## 它们的作用只是让尚未开始的续击不再发生。
+func _consume_intent_at_cancel_point() -> bool:
+	match _pending_intent:
+		Intent.ROLL:
+			if _roll_cooldown <= 0.0:
+				_pending_intent = Intent.NONE
+				_enter_roll()
+				return true
+		Intent.JUMP:
+			# 转成跳跃缓冲交给常规状态机，让它自己判断在不在地面
+			_pending_intent = Intent.NONE
+			_jump_buffer = JUMP_BUFFER_TIME
+			_end_attack()
+			return true
+		Intent.ATTACK:
+			if weapon.has_step(_combo_index + 1):
+				_pending_intent = Intent.NONE
+				_combo_timer = 0.0
+				_enter_attack(_combo_index + 1)
+				return true
+			# 末段之后没有下一段：丢掉这个意图，让这次攻击正常收尾。
+			# 想再打必须重新按 —— 连招要有终点（issue #9）。
+			_pending_intent = Intent.NONE
+	return false
 
 
 func _end_attack() -> void:
@@ -336,14 +389,22 @@ func _end_attack() -> void:
 	_combo_timer = 0.0
 	_combo_index += 1
 	_set_state(State.IDLE if is_on_floor() else State.FALL)
-	_apply_queued_swap()
+	_resolve_intent_after_attack()
 
 
-## 攻击彻底结束（不是连招中途）后才真正换武器。
-## 连招内部的取消接续仍算同一次攻击序列，保持用同一把武器。
-func _apply_queued_swap() -> void:
-	if _queued_swap:
-		_swap_weapon()
+## 攻击彻底结束时结算剩下的意图。
+## 换武器只在这里生效 —— 连招中途的取消接续仍算同一次攻击序列，
+## 整个序列必须用同一把武器（issue #2）。
+func _resolve_intent_after_attack() -> void:
+	var intent := _pending_intent
+	_pending_intent = Intent.NONE
+	match intent:
+		Intent.SWAP:
+			_swap_weapon()
+		Intent.ROLL:
+			_roll_buffer = INPUT_BUFFER_TIME
+		Intent.JUMP:
+			_jump_buffer = JUMP_BUFFER_TIME
 
 
 # ---------------------------------------------------------------- 受击 / 死亡
@@ -358,7 +419,7 @@ func _on_damaged(info: DamageInfo) -> void:
 	_set_state(State.HURT)
 	_state_time = 0.0
 	FX.shake(0.5)
-	_apply_queued_swap()
+	_resolve_intent_after_attack()
 
 
 func _process_hurt(delta: float) -> void:
@@ -447,9 +508,8 @@ func clear_transient_state() -> void:
 	_phase_time = 0.0
 	_combo_index = 0
 	_combo_timer = 0.0
-	# 排队的输入
-	_queued_attack = false
-	_queued_swap = false
+	# 排队的意图
+	_pending_intent = Intent.NONE
 	# 输入缓冲与冷却
 	_jump_buffer = 0.0
 	_attack_buffer = 0.0

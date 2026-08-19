@@ -69,6 +69,11 @@ func _on_next_room() -> void:
 
 
 func _on_enemy_died(world_pos: Vector2, reward: int) -> void:
+	# 敌人是在碰撞回调里死的，这会儿往场景里塞带碰撞体的节点会被引擎拒绝
+	_spawn_cells.call_deferred(world_pos, reward)
+
+
+func _spawn_cells(world_pos: Vector2, reward: int) -> void:
 	# 拆成几颗掉落，视觉上更有"爆开"的感觉
 	for value in Game.split_cell_reward(reward):
 		var cell := CellScene.instantiate() as CellPickup

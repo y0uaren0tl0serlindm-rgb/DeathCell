@@ -213,7 +213,8 @@ func _on_damaged(info: DamageInfo) -> void:
 func _on_died() -> void:
 	_set_state(State.DEAD)
 	hitbox.deactivate()
-	hurtbox.monitorable = false
+	# 死亡是从 area_entered 回调里触发的，物理查询期不能直接改 —— 必须延迟
+	hurtbox.set_deferred("monitorable", false)
 	set_collision_layer_value(3, false)
 	Events.enemy_died.emit(global_position, cell_reward)
 	FX.shake(0.4)

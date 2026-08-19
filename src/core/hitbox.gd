@@ -40,7 +40,9 @@ func deactivate() -> void:
 
 
 func set_active(value: bool) -> void:
-	monitoring = value
+	# 全部走 set_deferred：deactivate() 可能是在 area_entered 回调里被调用的
+	# （命中 → 扣血 → 死亡/受击 → 关判定），那是物理查询期，直接改会报错
+	set_deferred("monitoring", value)
 	if _shape:
 		_shape.set_deferred("disabled", not value)
 
