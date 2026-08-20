@@ -52,14 +52,15 @@ func _ready() -> void:
 		_finish()
 		return
 
-	_check(hero.texture.resource_path in IDLE_TEXTURES, "idle animation is active before running")
+	_check(_texture_source_path(hero.texture) in IDLE_TEXTURES, "idle animation is active before running")
+	var safe_position: Vector2 = player.position
 	var observed_idle: Dictionary[String, bool] = {}
 	var idle_scales: Dictionary[Vector2, bool] = {}
 	var idle_positions: Dictionary[Vector2, bool] = {}
 	for i in 80:
 		hero.call("_update_action_pose", 1.0 / 60.0)
 		await get_tree().process_frame
-		observed_idle[hero.texture.resource_path] = true
+		observed_idle[_texture_source_path(hero.texture)] = true
 		idle_scales[hero.scale] = true
 		idle_positions[hero.position] = true
 	_check_all_observed(IDLE_TEXTURES, observed_idle, "idle loop")
@@ -71,11 +72,11 @@ func _ready() -> void:
 	for i in 28:
 		# Keep the player in a deterministic, obstacle-free run while the longer
 		# shared-seam startup completes.
-		player.position.x = 83.0
+		player.position = safe_position
 		player.velocity.x = 190.0
 		await get_tree().physics_frame
 		await get_tree().process_frame
-		observed_start[hero.texture.resource_path] = true
+		observed_start[_texture_source_path(hero.texture)] = true
 	_check(int(player.get("state")) == 1, "player entered run state")
 	_check(not hero.is_set_as_top_level(), "movement sprite remains in normal parent space")
 	_check(hero.get_node_or_null("RunRig") == null, "movement uses complete frames without a joint rig")
@@ -86,12 +87,12 @@ func _ready() -> void:
 	for i in 60:
 		# Keep the isolated art test away from room walls/enemies while allowing
 		# enough time to observe the full loop at gameplay speed.
-		player.position.x = 83.0
+		player.position = safe_position
 		player.velocity.x = 190.0
 		await get_tree().physics_frame
 		await get_tree().process_frame
-		observed_run[hero.texture.resource_path] = true
-		if hero.texture.resource_path in RUN_TEXTURES:
+		observed_run[_texture_source_path(hero.texture)] = true
+		if _texture_source_path(hero.texture) in RUN_TEXTURES:
 			observed_y[hero.position.y] = true
 	_check_all_observed(RUN_TEXTURES, observed_run, "run loop")
 	_check(observed_y.size() == 1 and observed_y.has(-13.0), "run loop keeps one stable presentation anchor: %s" % [observed_y.keys()])
@@ -100,28 +101,30 @@ func _ready() -> void:
 	Input.action_release(&"move_right")
 	Input.action_press(&"move_left")
 	for i in 28:
+		player.position = safe_position
 		await get_tree().physics_frame
 		await get_tree().process_frame
-		observed_turn[hero.texture.resource_path] = true
+		observed_turn[_texture_source_path(hero.texture)] = true
 	_check_all_observed(TURN_TEXTURES, observed_turn, "brake turn")
 	_check(hero.flip_h, "visual completes the turn toward screen-left")
 
 	for i in 70:
-		player.position.x = 83.0
+		player.position = safe_position
 		player.velocity.x = -190.0
 		await get_tree().physics_frame
 		await get_tree().process_frame
-	_check(hero.texture.resource_path in RUN_TEXTURES, "run loop resumes after the turn: %s" % hero.texture.resource_path)
+	_check(_texture_source_path(hero.texture) in RUN_TEXTURES, "run loop resumes after the turn: %s" % _texture_source_path(hero.texture))
 	_check(hero.flip_h, "leftward run loop remains mirrored")
 
 	var observed_stop: Dictionary[String, bool] = {}
 	Input.action_release(&"move_left")
 	for i in 35:
+		player.position = safe_position
 		await get_tree().physics_frame
 		await get_tree().process_frame
-		observed_stop[hero.texture.resource_path] = true
+		observed_stop[_texture_source_path(hero.texture)] = true
 	_check_all_observed(STOP_TEXTURES, observed_stop, "run stop")
-	_check(hero.texture.resource_path in IDLE_TEXTURES, "idle animation returns after stop recovery")
+	_check(_texture_source_path(hero.texture) in IDLE_TEXTURES, "idle animation returns after stop recovery")
 	_finish()
 
 
@@ -133,6 +136,13 @@ func _check_all_observed(expected: Array, observed: Dictionary[String, bool], la
 func _physics_frames(count: int) -> void:
 	for i in count:
 		await get_tree().physics_frame
+
+
+func _texture_source_path(frame_texture: Texture2D) -> String:
+	if frame_texture is AtlasTexture:
+		var atlas_texture := frame_texture as AtlasTexture
+		return atlas_texture.atlas.resource_path if atlas_texture.atlas else ""
+	return frame_texture.resource_path if frame_texture else ""
 
 
 func _check(condition: bool, label: String) -> void:
