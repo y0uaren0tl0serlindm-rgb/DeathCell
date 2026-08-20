@@ -79,31 +79,25 @@ func _place_actors(depth: int) -> void:
 	for child in entities.get_children():
 		child.queue_free()
 
-	entrance_position = grid.tile_to_world(grid.entrance_x, grid.ground_row[grid.entrance_x]) \
+	# 用落脚点而不是"每列的地面高度"—— 洞穴生成器里后者根本不存在
+	entrance_position = grid.tile_to_world(grid.entrance_cell.x, grid.entrance_cell.y + 1) \
 		+ Vector2(0, -2)
-	exit_position = grid.tile_to_world(grid.exit_x, grid.ground_row[grid.exit_x])
+	exit_position = grid.tile_to_world(grid.exit_cell.x, grid.exit_cell.y + 1)
 
 	var door := DoorScene.instantiate() as Node2D
 	entities.add_child(door)
 	door.position = exit_position
 
+	# 只在"从入口真的走得到"的落脚点上刷怪，顺带敌人也能刷在平台上了
 	var enemy_count := clampi(4 + depth, 4, 11)
-	var used_columns: Array[int] = []
-	for i in enemy_count:
-		var x := _rng.randi_range(12, LevelGrid.W - 12)
-		var tries := 0
-		while _too_close(used_columns, x) and tries < 12:
-			x = _rng.randi_range(12, LevelGrid.W - 12)
-			tries += 1
-		used_columns.append(x)
-
+	for cell in grid.spawn_footholds(_rng, enemy_count):
 		var scene: PackedScene = GruntScene
 		# 深度越大越容易刷精英
 		if _rng.randf() < minf(0.12 + depth * 0.06, 0.45):
 			scene = BruteScene
 		var enemy := scene.instantiate() as Enemy
 		entities.add_child(enemy)
-		enemy.position = grid.tile_to_world(x, grid.ground_row[x])
+		enemy.position = grid.tile_to_world(cell.x, cell.y + 1)
 
 
 func _too_close(columns: Array[int], x: int) -> bool:

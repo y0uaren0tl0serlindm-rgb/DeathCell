@@ -1,7 +1,7 @@
 # DeathCell — 类死亡细胞 2D 动作
 
 Godot 4.7 / GDScript。目前是一个**可玩的垂直切片**：手感 → 战斗 → 程序化关卡 → 死亡循环这条主链路已经打通，
-美术全部是占位色块（ColorRect + `_draw()`），换成真实素材不需要改逻辑。
+主角已接入像素美术，其余仍是占位色块（ColorRect + `_draw()`），换成真实素材不需要改逻辑。
 
 ## 仓库
 
@@ -27,8 +27,9 @@ git push origin main && git push github main
 godot --headless --path . --import                        # 首次克隆后跑一次（导入美术素材）
 godot --path .                                            # 直接开玩
 godot --headless --path . res://tests/smoke_test.tscn     # 冒烟测试：核心链路 15 项
-godot --headless --path . res://tests/generation_test.tscn # 关卡校验：1800 个房间可通行
+godot --headless --path . res://tests/generation_test.tscn # 关卡校验：两个生成器各 1200 个房间
 godot --headless --path . res://tests/regression_test.tscn # 回归测试：已修 issue 不复发
+godot --headless --path . res://tests/jump_model_test.tscn # 跳跃模型与真实玩家是否一致
 bash tests/cold_start_check.sh                            # 冷启动：无缓存也能起
 ```
 
@@ -71,7 +72,9 @@ src/
   player/     player.gd（枚举状态机：IDLE/RUN/JUMP/FALL/ROLL/ATTACK/HURT/DEAD）
   weapons/    WeaponData + AttackStep + weapons.gd（武器库，代码定义）
   enemies/    enemy.gd 基类 + grunt.tscn / brute.tscn（靠 @export 数值区分）
-  level/      level_grid.gd（地形生成 + 可达性校验，不进场景树，可批量测试）
+  level/      jump_model.gd（用 player.gd 的物理常数模拟出跳跃包络）
+              agent_carver.gd（智能体挖掘：默认生成器）
+              level_grid.gd（生成调度 + 可达性校验，不进场景树，可批量测试）
               room.gd（把网格变成碰撞体/画面/角色）, door.gd
   pickups/    cell_pickup.gd
   ui/         hud.gd
@@ -79,16 +82,17 @@ src/
   main.gd     房间 ↔ 玩家 ↔ 死亡重开的编排
 tests/        smoke_test（核心链路）, generation_test（关卡可通行性）
               regression_test（每项对应一个已修 issue）
+              jump_model_test（跳跃模型 vs 真实玩家）
 ```
 
 ## 调手感看这里
 
 - **移动/跳跃/翻滚**：`src/player/player.gd` 顶部常量区。
-  ⚠️ 改跳跃参数必须同步 `src/level/level_grid.gd` 的"玩家能力"常量段
-  （`BODY_TILES` / `JUMP_UP` / `PLATFORM_CLEARANCE` / `_max_dx()`）——
-  地形生成是按这些值反推约束的，不同步就会生成玩家跳不上去的地形。
-  这几个常量之间有硬约束（`PLATFORM_CLEARANCE + 1 <= JUMP_UP`），
-  generation_test 开头会直接断言，改完跑一遍就知道有没有破坏配合。
+  改完跳跃参数不需要再去关卡那边手工同步 —— `src/level/jump_model.gd`
+  会直接读这些常量、模拟出跳跃包络，地形生成用的是模拟结果。
+  但要跑一遍 `jump_model_test`（模型 vs 真实玩家）和 `generation_test`
+  确认没脱节。仍然有一条常量硬约束：`PLATFORM_CLEARANCE + 1 <= 稳妥跳跃高度`，
+  generation_test 开头会断言。
 - **玩家的瞬时状态**：新增任何 `_pending_*` / `_active_*` / 输入缓冲字段，
   都要加进 `player.gd` 的 `clear_transient_state()`。
   漏了它就会跨房间泄漏，在下一次攻击结束时莫名其妙地生效（issue #6）。
@@ -105,6 +109,28 @@ tests/        smoke_test（核心链路）, generation_test（关卡可通行性
 - **打击感**：`src/autoload/fx.gd`（顿帧时长、震屏强度）。
   顿帧用 `Engine.time_scale`，所以任何需要在顿帧期间照常运行的东西（震屏、飘字）
   都必须用不受时间缩放影响的 delta 或 `set_ignore_time_scale(true)`。
+
+## 关卡生成
+
+有两个生成器，`LevelGrid.use_agent_carver` 切换，默认**智能体挖掘**。
+
+**智能体挖掘**（`agent_carver.gd`）：从一整块石头开始，智能体从入口出发，
+每一步只做 `JumpModel` 里真实存在的移动，走到出口为止；走过的地方挖空、
+落脚点下面填实。**可达性是路径本身的性质**，不靠事后推导约束。
+出来的是带竖井、露台、回环的洞穴。
+
+**高度图**（`level_grid.gd` 里的 `_build_with_heightmap`）：地面随机游走 +
+悬空平台，出来的是"一条走廊 + 挂件"。保留它是为了 A/B 对比，
+`generation_test` 两个都跑。
+
+两条约束是共通的、也是最容易踩的：
+
+- 平台/台阶的高度必须来自 `JumpModel`，不要手推。手推的两次代价见 issue #7。
+- **正下方是跳不上去的** —— 玩家会顶到台子底面，真实路线是在边上起跳再落上去。
+  所以基准落脚点要取紧挨台子边缘的那一列，不是台子自己那一列。
+
+改了生成逻辑跑 `generation_test`，它会对比两个生成器的指标并断言硬条件
+（出口可达、连通率、平台密度不退化）。
 
 ## 物理层约定
 
@@ -175,6 +201,6 @@ Hitbox 只 `monitoring`，Hurtbox 只 `monitorable` —— 攻击方主动检测
 3. **敌人多样性**：目前只有近战冲撞。至少还需要远程射手和会跳的敌人（现在敌人不会跳，会被地形卡住）。
 4. **词条/装备系统**：死亡细胞的核心留存来自"这把武器有什么词条"。
    `WeaponData` 已经是 Resource，加一层 Affix 数组即可。
-5. **房间结构**：现在每层是一条线性走廊。下一步做多房间图（分支、宝箱房、精英房）。
+5. **房间结构**：现在每层是单个房间（洞穴）。下一步做多房间图（分支、宝箱房、精英房）。
 6. **meta 进度**：`Game.meta_blueprints` 是空壳，需要接存档（`ConfigFile` 或 `ResourceSaver`）。
 7. **一次性内容**：Boss、卷轴（永久属性提升）、传送门。

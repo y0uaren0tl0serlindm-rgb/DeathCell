@@ -200,6 +200,7 @@ func _test_issue_5_cell_reward_split() -> void:
 ## 换房间必须清掉上一房间的攻击上下文和排队输入
 func _test_issue_6_room_transition_clears_queue() -> void:
 	print("\n[#6] 换房间清理瞬时状态")
+	await _clear_enemies()
 	var player := get_tree().get_first_node_in_group(&"player") as Player
 	await _wait_until_idle(player)
 	var weapon_before: WeaponData = player.weapon
@@ -222,6 +223,7 @@ func _test_issue_6_room_transition_clears_queue() -> void:
 	_check(player.state == Player.State.ATTACK, "#6 进门时仍在攻击中")
 	Events.request_next_room.emit()
 	await _frames(6)
+	await _clear_enemies()
 
 	_check(player._pending_intent == Player.Intent.NONE, "#6 进新房间后待执行意图已清除")
 	_check(player._active_step == null and player._active_weapon == null,
@@ -247,6 +249,7 @@ func _test_issue_6_room_transition_clears_queue() -> void:
 ## 攻击输入的意图槽：只留一个、可被覆盖、不过期、连招有终点
 func _test_issue_9_intent_slot() -> void:
 	print("\n[#9] 攻击意图槽")
+	await _clear_enemies()
 	var player := get_tree().get_first_node_in_group(&"player") as Player
 
 	# --- A. 第一击内狂点，最多只多打出一击 ---
@@ -332,6 +335,16 @@ func _test_issue_9_intent_slot() -> void:
 	_check(looped, "#9 显式开启 loops 的武器可以循环连招")
 	await _equip(player, Weapons.rusty_sword())
 	await _run_until_idle(player, 200)
+
+
+## 这几项测的是输入语义，不该受战斗干扰：
+## 敌人打中玩家会走 _on_damaged → _resolve_intent_after_attack()，把意图槽清掉，
+## 断言就变成随机失败。换成洞穴地形后敌人更容易贴上来，偶发概率明显上升。
+func _clear_enemies() -> void:
+	for e in get_tree().get_nodes_in_group(&"enemy"):
+		e.queue_free()
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 
 
 func _equip(player: Player, w: WeaponData) -> void:

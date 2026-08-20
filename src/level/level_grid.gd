@@ -9,6 +9,9 @@ extends RefCounted
 ##   2. 按校验：生成完做一次可达性搜索，万一还是断了就拆平台、再不行就铲平走廊
 ## 光靠第 1 层是不够的，随机生成里"我以为约束住了"和"真的约束住了"是两回事。
 
+const JumpModel = preload("res://src/level/jump_model.gd")
+const AgentCarver = preload("res://src/level/agent_carver.gd")
+
 const TILE := 16
 const W := 92
 const H := 24
@@ -25,13 +28,11 @@ const ROOF_CLEARANCE := 6    ## 洞顶与地面之间至少留几格
 ## 玩家碰撞体 22px，一格 16px → 站立需要 2 格净空
 const BODY_TILES := 2
 ## 平台底面与地面之间要留的净空，保证地面走廊永远走得过去。
-## 它和 JUMP_UP 是耦合的，改一个必须回头看另一个：
-## 净空 c 格 → 平台落脚点比地面落脚点高 c+1 格 → 想跳得上去必须 c + 1 <= JUMP_UP。
-## 之前这里写 3，算出来平台永远高 4 格，比 JUMP_UP 还高一格，
-## 于是平台画得出来、站不上去（issue #7）。
+## 它和跳跃能力是耦合的：净空 c 格 → 平台落脚点比地面落脚点高 c+1 格 →
+## 想跳得上去必须 c + 1 <= JumpModel.comfortable_rise()。
+## 之前这里写 3、跳跃能力也是 3，平台永远比跳跃能力高一格，
+## 画得出来站不上去（issue #7）。generation_test 会断言这条关系。
 const PLATFORM_CLEARANCE := BODY_TILES
-## 实测跳跃高度 52px ≈ 3.25 格，保守取 3
-const JUMP_UP := 3
 
 var solid: Array[PackedByteArray] = []
 var ground_row: PackedInt32Array = PackedInt32Array()
@@ -42,6 +43,14 @@ var corridor_ceiling: PackedInt32Array = PackedInt32Array()
 
 var entrance_x := 4
 var exit_x := W - 6
+## 入口/出口的落脚点。高度图生成器从 ground_row 推出来，
+## 智能体生成器直接给出 —— 洞穴里"每列的地面高度"这个概念本身就不成立。
+var entrance_cell: Vector2i
+var exit_cell: Vector2i
+
+## 用哪个生成器。做成静态变量是为了能 A/B 对比：
+## 关卡测试会两个都跑一遍，对比指标。
+static var use_agent_carver := true
 
 ## 生成时做了几次修复。正常应该恒为 0；测试会盯着这个值。
 var repairs := 0
@@ -50,14 +59,59 @@ var pruned_platforms := 0
 
 var _rng: RandomNumberGenerator
 var _terrain_snapshot: Array[PackedByteArray] = []
+## 可达性搜索结果缓存。地形一改就作废 —— 生成过程里要反复查，
+## 每次重跑 BFS 会让 1800 个房间的生成测试慢一个数量级。
+var _reach_cache = null
+
+
+func _invalidate_reach() -> void:
+	_reach_cache = null
 
 
 func build(rng: RandomNumberGenerator) -> void:
 	_rng = rng
 	repairs = 0
 	pruned_platforms = 0
+	if use_agent_carver:
+		_build_with_agent()
+	else:
+		_build_with_heightmap()
+
+
+## 智能体挖掘：可达性是路径本身的性质，不需要事后推导约束
+func _build_with_agent() -> void:
+	# 挖出来的路偶尔会把自己堵死（智能体绕回自己挖开的区域）。
+	# 与其把关卡铲平成一条直走廊，不如换个随机流重挖 —— 保住关卡质量。
+	var base_exit := W - 6
+	for attempt in 4:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = _rng.randi()
+		var carver := AgentCarver.new()
+		carver.carve(W, H, rng, 4, base_exit)
+		solid = carver.solid
+		entrance_cell = carver.entrance_cell
+		exit_cell = carver.exit_cell
+		entrance_x = entrance_cell.x
+		exit_x = exit_cell.x
+		# 洞穴里没有"悬空平台"这个概念，整张图都是地形
+		_snapshot_terrain()
+		_invalidate_reach()
+		if exit_reachable() and exit_cell.x >= base_exit - 6:
+			_seal_unreachable_footholds()
+			return
+		repairs += 1
+	# 四次都没挖通才铲直通道
+	_dig_straight_corridor()
+
+
+func _build_with_heightmap() -> void:
 	_build_heightmap()
 	_compute_corridor_ceiling()
+	# 出入口必须在剪枝之前定下来：剪枝要跑可达性搜索，
+	# 而搜索的起点就是 entrance_cell —— 晚一步设的话起点是 (0,0)，
+	# 可达集直接为空，平台会被全部误判成够不着而拆光。
+	entrance_cell = foothold(entrance_x)
+	exit_cell = foothold(exit_x)
 	_snapshot_terrain()
 	_carve_platforms()
 	_prune_unreachable_platforms()
@@ -72,9 +126,71 @@ func build(rng: RandomNumberGenerator) -> void:
 		_flatten_whole_corridor()
 
 
+## 填掉玩家够不着的落脚点。
+##
+## 挖掘会在岩层里留下 1 格高的凹槽之类的角落：地是实的、人站得下，
+## 但头顶被压住钻不进去 —— 正是 issue #7 抱怨的"看得见站不上去"。
+##
+## 填之前先记下可达集，填完要是反而变小了（说明那些空格是某条轨迹的必经通道）
+## 就回滚。整批回滚会让一个有问题的格子连累其他本可以填的，
+## 所以整批失败后再逐个试一遍。
+func _seal_unreachable_footholds() -> void:
+	for attempt in 3:
+		var targets := _stranded_footholds()
+		if targets.is_empty():
+			return
+		if _try_seal(targets):
+			continue          # 填成功了，再看一轮有没有新暴露出来的
+		# 整批不行，逐个来
+		var sealed_any := false
+		for c in targets:
+			if _try_seal([c]):
+				sealed_any = true
+		if not sealed_any:
+			return
+	_snapshot_terrain()
+
+
+func _stranded_footholds() -> Array[Vector2i]:
+	var reach := reachable_cells()
+	var out: Array[Vector2i] = []
+	for x in W:
+		for y in H:
+			if is_standable(x, y) and not reach.has(Vector2i(x, y)):
+				out.append(Vector2i(x, y))
+	return out
+
+
+## 填掉这些格子；如果反而弄断了原有的路就回滚，返回是否填成功
+func _try_seal(cells: Array) -> bool:
+	var before: int = reachable_cells().size()
+	for c in cells:
+		solid[c.x][c.y] = 1
+	_invalidate_reach()
+	if reachable_cells().size() < before:
+		for c in cells:
+			solid[c.x][c.y] = 0
+		_invalidate_reach()
+		return false
+	return true
+
+
+## 最后的兜底：从入口到出口横着挖一条直通道
+func _dig_straight_corridor() -> void:
+	_invalidate_reach()
+	var y := entrance_cell.y
+	for x in range(2, W - 2):
+		for dy in range(0, BODY_TILES + 2):
+			solid[x][y - dy] = 0
+		solid[x][y + 1] = 1
+	exit_cell = Vector2i(exit_x, y)
+	_snapshot_terrain()
+
+
 # ---------------------------------------------------------------- 生成
 
 func _build_heightmap() -> void:
+	_invalidate_reach()
 	solid.clear()
 	for x in W:
 		var col := PackedByteArray()
@@ -118,6 +234,7 @@ func _build_heightmap() -> void:
 
 
 func _flatten_column(x: int, row: int) -> void:
+	_invalidate_reach()
 	row = clampi(row, MIN_GROUND_ROW, MAX_GROUND_ROW)
 	ground_row[x] = row
 	roof_row[x] = mini(roof_row[x], row - ROOF_CLEARANCE)
@@ -126,8 +243,8 @@ func _flatten_column(x: int, row: int) -> void:
 
 
 ## 算出每列必须保持畅通的高度。
-## 玩家从 x 跳到相邻台阶时，会沿"竖直上升 → 水平 → 下落"占用到 apex 上方一格，
-## 所以禁区上沿取自己和左右邻居里最高的那个落脚点，再往上留出身高。
+## 玩家跳上相邻台阶时头顶要占掉身高那么多格，所以禁区上沿取
+## 自己和左右邻居里最高的那个落脚点，再往上留出身高。
 func _compute_corridor_ceiling() -> void:
 	corridor_ceiling = PackedInt32Array()
 	corridor_ceiling.resize(W)
@@ -144,7 +261,8 @@ func _compute_corridor_ceiling() -> void:
 ##
 ## 高度不是随便取的：平台**正下方是跳不上去的**（会顶到平台底面），
 ## 真实路线是在平台边上起跳、再落到台面。所以基准落脚点取紧挨平台左边那一列，
-## 平台落脚点正好比它高 JUMP_UP 格。
+## 平台落脚点正好比它高 JumpModel.comfortable_rise() 格 —— 这个数字是模拟出来的，
+## 不是手推的。
 func _carve_platforms() -> void:
 	# 记录哪些列已经有平台。平台互相叠会造出"站得下但进不去"的夹层：
 	# 上下相隔正好 BODY_TILES 时人塞得进去，但移动过去需要顶点有 BODY_TILES 格净空，
@@ -167,7 +285,7 @@ func _carve_platforms() -> void:
 		if x0 < 0:
 			continue
 		var support := ground_row[maxi(x0 - 1, 2)] - 1     # 边上那一列的落脚点
-		var y := _place_platform(x0, x1, support - JUMP_UP + 1)
+		var y := _place_platform(x0, x1, support - JumpModel.comfortable_rise() + 1)
 		if y > 0:
 			placed.append([x0, x1, y])
 			_mark_span(occupied, x0, x1)
@@ -182,7 +300,7 @@ func _carve_platforms() -> void:
 		if b - a < 2 or not _span_free(occupied, a, b + 1):
 			continue
 		var support2: int = p[2] - 1           # 下层平台的落脚点
-		var y2 := _place_platform(a, b, support2 - JUMP_UP + 1)
+		var y2 := _place_platform(a, b, support2 - JumpModel.comfortable_rise() + 1)
 		if y2 > 0:
 			_mark_span(occupied, a, b)
 
@@ -202,6 +320,7 @@ func _mark_span(occupied: PackedByteArray, x0: int, x1: int) -> void:
 ## 放一段平台，返回实际使用的砖块行；放不下返回 -1。
 ## 压到走廊禁区时整块抬高而不是丢弃 —— 直接丢会让关卡变空旷。
 func _place_platform(x0: int, x1: int, desired: int) -> int:
+	_invalidate_reach()
 	var limit := H
 	for x in range(x0, x1):
 		limit = mini(limit, corridor_ceiling[x] - 1)
@@ -310,6 +429,7 @@ func _snapshot_terrain() -> void:
 
 
 func _restore_terrain() -> void:
+	_invalidate_reach()
 	for x in W:
 		solid[x] = _terrain_snapshot[x].duplicate()
 
@@ -344,86 +464,98 @@ func foothold(x: int) -> Vector2i:
 
 # ---------------------------------------------------------------- 可达性
 
-## 跳跃能覆盖的水平距离随高度差衰减：往上跳得越高，能横move的越少。
-## 全部取保守值 —— 宁可误判为"不可达"而重生成，也不能放过真的走不通的房间。
-static func _max_dx(dy: int) -> int:
-	if dy > 0:
-		return 6     # 下落：滞空久，飘得远
-	if dy >= -1:
-		return 5
-	if dy == -2:
-		return 4
-	return 3         # 跳满 3 格高时几乎只能垂直上
+## 能不能从一个落脚点移动到另一个。
+##
+## 判据直接来自 JumpModel 模拟出的真实轨迹：只要有**任意一条**轨迹沿途
+## 扫过的格子全是空的，就算到得了。以前这里用"竖直上升 → 水平 → 下落"的
+## L 形近似，既漏判（真实抛物线能钻过 L 形过不去的缺口）又误判
+## （L 形没考虑身体宽度扫过的格子）。
+func _can_move(from_cell: Vector2i, to_cell: Vector2i) -> bool:
+	for mask in JumpModel.masks_for(to_cell - from_cell):
+		if _mask_clear(from_cell, mask):
+			return true
+	return false
 
 
-func _column_clear(x: int, y_top: int, y_bottom: int) -> bool:
-	for y in range(y_top - (BODY_TILES - 1), y_bottom + 1):
-		if not is_free(x, y):
+func _mask_clear(origin: Vector2i, mask: PackedInt32Array) -> bool:
+	for e in mask:
+		# 内联解码：这是最内层循环，函数调用开销在这里很贵
+		var x := origin.x + (e / 256 - 64)
+		var y := origin.y + (e % 256 - 64)
+		if x < 0 or x >= W or y < 0 or y >= H:
+			return false
+		if solid[x][y] == 1:
 			return false
 	return true
 
 
-func _row_clear(y: int, x_from: int, x_to: int) -> bool:
-	for x in range(mini(x_from, x_to), maxi(x_from, x_to) + 1):
-		for i in BODY_TILES:
-			if not is_free(x, y - i):
-				return false
-	return true
-
-
-## 用"竖直上升 → 水平移动 → 竖直下落"的 L 形路径近似跳跃轨迹。
-## 比真实抛物线保守，够用且不会漏判。
-func _can_move(from_cell: Vector2i, to_cell: Vector2i) -> bool:
-	var dx := to_cell.x - from_cell.x
-	var dy := to_cell.y - from_cell.y
-	if dx == 0 and dy == 0:
-		return false
-	if dy < -JUMP_UP or absi(dx) > _max_dx(dy):
-		return false
-	var apex := mini(from_cell.y, to_cell.y)
-	return _column_clear(from_cell.x, apex, from_cell.y) \
-		and _row_clear(apex, from_cell.x, to_cell.x) \
-		and _column_clear(to_cell.x, apex, to_cell.y)
-
-
 ## 从入口做一次 BFS，返回所有能站上去的格子
 func reachable_cells() -> Dictionary:
-	# 先把落脚点按列分桶，搜索时只看邻近几列
-	var by_column: Array[Array] = []
-	by_column.resize(W)
-	for x in W:
-		by_column[x] = []
-	for x in W:
-		for y in H:
-			if is_standable(x, y):
-				by_column[x].append(Vector2i(x, y))
+	if _reach_cache != null:
+		return _reach_cache
 
-	var start := foothold(entrance_x)
+	# 先把"能站人"的格子刷成位图，BFS 里每个候选点只查一次数组
+	var standable: Array[PackedByteArray] = []
+	for x in W:
+		var col := PackedByteArray()
+		col.resize(H)
+		for y in H:
+			col[y] = 1 if is_standable(x, y) else 0
+		standable.append(col)
+
+	var start := entrance_cell
 	var visited := {}
-	if not is_standable(start.x, start.y):
+	if start.x < 0 or start.x >= W or start.y < 0 or start.y >= H \
+			or standable[start.x][start.y] == 0:
+		_reach_cache = visited
 		return visited
 
+	var offsets := JumpModel.offsets()
 	var queue: Array[Vector2i] = [start]
 	visited[start] = true
 	while not queue.is_empty():
 		var cell: Vector2i = queue.pop_back()
-		var lo := maxi(cell.x - 6, 0)
-		var hi := mini(cell.x + 6, W - 1)
-		for x in range(lo, hi + 1):
-			for target in by_column[x]:
-				if visited.has(target):
-					continue
-				if _can_move(cell, target):
-					visited[target] = true
-					queue.append(target)
+		for off in offsets:
+			var target: Vector2i = cell + off
+			if target.x < 0 or target.x >= W or target.y < 0 or target.y >= H:
+				continue
+			if standable[target.x][target.y] == 0 or visited.has(target):
+				continue
+			if _can_move(cell, target):
+				visited[target] = true
+				queue.append(target)
+	_reach_cache = visited
 	return visited
 
 
 func exit_reachable() -> bool:
-	var goal := foothold(exit_x)
+	var goal := exit_cell
 	if not is_standable(goal.x, goal.y):
 		return false
 	return reachable_cells().has(goal)
+
+
+## 挑若干个互相隔开的可达落脚点，用来摆敌人。
+## 比"按列取地面高度"通用：洞穴里没有唯一的地面，而且这样敌人也能刷在平台上。
+func spawn_footholds(rng: RandomNumberGenerator, count: int, min_gap: int = 6) -> Array:
+	var pool: Array[Vector2i] = []
+	for cell in reachable_cells():
+		var c: Vector2i = cell
+		if c.x > entrance_cell.x + 6 and c.x < exit_cell.x - 4:
+			pool.append(c)
+	pool.shuffle()
+	var chosen: Array[Vector2i] = []
+	for c in pool:
+		if chosen.size() >= count:
+			break
+		var ok := true
+		for other in chosen:
+			if absi(other.x - c.x) < min_gap and absi(other.y - c.y) < 4:
+				ok = false
+				break
+		if ok:
+			chosen.append(c)
+	return chosen
 
 
 func world_size() -> Vector2:
