@@ -1,20 +1,81 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=31 format=3]
 
-[ext_resource type="Texture2D" path="res://assets/characters/player/concepts/deathcell_hero_sprite_master_v2.png" id="1_hero"]
-[ext_resource type="Script" path="res://assets/characters/player/runtime/hero_sprite.gd" id="2_script"]
-[ext_resource type="Shader" path="res://assets/characters/player/runtime/hero_flash.gdshader" id="3_shader"]
-[ext_resource type="Texture2D" path="res://assets/characters/player/animations/deathcell_hero_roll_v1.png" id="4_roll"]
+[ext_resource type="Script" path="res://assets/characters/player/runtime/hero_sprite.gd" id="1_script"]
+[ext_resource type="Shader" path="res://assets/characters/player/runtime/hero_flash.gdshader" id="2_shader"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_idle_01.png" id="3_idle_01"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_idle_02.png" id="4_idle_02"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_idle_03.png" id="5_idle_03"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_idle_04.png" id="6_idle_04"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_idle_05.png" id="7_idle_05"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_idle_06.png" id="8_idle_06"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_idle_07.png" id="9_idle_07"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_idle_08.png" id="10_idle_08"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_run_01.png" id="11_run_01"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_run_02.png" id="12_run_02"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_run_03.png" id="13_run_03"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_run_04.png" id="14_run_04"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_run_05.png" id="15_run_05"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_run_06.png" id="16_run_06"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_run_07.png" id="17_run_07"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_run_08.png" id="18_run_08"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_a_01.png" id="19_attack_a_01"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_a_02.png" id="20_attack_a_02"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_a_03.png" id="21_attack_a_03"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_a_04.png" id="22_attack_a_04"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_a_05.png" id="23_attack_a_05"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_a_06.png" id="24_attack_a_06"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_b_01.png" id="25_attack_b_01"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_b_02.png" id="26_attack_b_02"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_b_03.png" id="27_attack_b_03"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_b_04.png" id="28_attack_b_04"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_b_05.png" id="29_attack_b_05"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_b_06.png" id="30_attack_b_06"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_hero"]
 resource_local_to_scene = true
-shader = ExtResource("3_shader")
+shader = ExtResource("2_shader")
 
 [node name="HeroSprite" type="Sprite2D"]
 texture_filter = 1
 material = SubResource("ShaderMaterial_hero")
-position = Vector2(0, -12)
-scale = Vector2(0.022, 0.022)
-texture = ExtResource("1_hero")
-script = ExtResource("2_script")
-idle_texture = ExtResource("1_hero")
-roll_texture = ExtResource("4_roll")
+position = Vector2(0, -13)
+scale = Vector2(0.6, 0.6)
+texture = ExtResource("3_idle_01")
+script = ExtResource("1_script")
+idle_frame_01_texture = ExtResource("3_idle_01")
+idle_frame_02_texture = ExtResource("4_idle_02")
+idle_frame_03_texture = ExtResource("5_idle_03")
+idle_frame_04_texture = ExtResource("6_idle_04")
+idle_frame_05_texture = ExtResource("7_idle_05")
+idle_frame_06_texture = ExtResource("8_idle_06")
+idle_frame_07_texture = ExtResource("9_idle_07")
+idle_frame_08_texture = ExtResource("10_idle_08")
+roll_texture = ExtResource("3_idle_01")
+attack_a_frame_01_texture = ExtResource("19_attack_a_01")
+attack_a_frame_02_texture = ExtResource("20_attack_a_02")
+attack_a_frame_03_texture = ExtResource("21_attack_a_03")
+attack_a_frame_04_texture = ExtResource("22_attack_a_04")
+attack_a_frame_05_texture = ExtResource("23_attack_a_05")
+attack_a_frame_06_texture = ExtResource("24_attack_a_06")
+attack_b_frame_01_texture = ExtResource("25_attack_b_01")
+attack_b_frame_02_texture = ExtResource("26_attack_b_02")
+attack_b_frame_03_texture = ExtResource("27_attack_b_03")
+attack_b_frame_04_texture = ExtResource("28_attack_b_04")
+attack_b_frame_05_texture = ExtResource("29_attack_b_05")
+attack_b_frame_06_texture = ExtResource("30_attack_b_06")
+run_frame_01_texture = ExtResource("11_run_01")
+run_frame_02_texture = ExtResource("12_run_02")
+run_frame_03_texture = ExtResource("13_run_03")
+run_frame_04_texture = ExtResource("14_run_04")
+run_frame_05_texture = ExtResource("15_run_05")
+run_frame_06_texture = ExtResource("16_run_06")
+run_frame_07_texture = ExtResource("17_run_07")
+run_frame_08_texture = ExtResource("18_run_08")
+run_start_frame_01_texture = ExtResource("3_idle_01")
+run_start_frame_02_texture = ExtResource("18_run_08")
+run_stop_frame_01_texture = ExtResource("18_run_08")
+run_stop_frame_02_texture = ExtResource("4_idle_02")
+run_stop_frame_03_texture = ExtResource("3_idle_01")
+run_turn_frame_01_texture = ExtResource("11_run_01")
+run_turn_frame_02_texture = ExtResource("3_idle_01")
+run_turn_frame_03_texture = ExtResource("11_run_01")

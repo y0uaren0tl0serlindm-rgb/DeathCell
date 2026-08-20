@@ -2,8 +2,17 @@ extends Node
 ## Art-only integration check for the player roll presentation.
 
 const MainScene := preload("res://src/main.tscn")
-const ROLL_TEXTURE := "res://assets/characters/player/animations/deathcell_hero_roll_v1.png"
-const IDLE_TEXTURE := "res://assets/characters/player/concepts/deathcell_hero_sprite_master_v2.png"
+const ROLL_TEXTURE := "res://assets/characters/player/animations/swordsman_idle_01.png"
+const IDLE_TEXTURES := [
+	"res://assets/characters/player/animations/swordsman_idle_01.png",
+	"res://assets/characters/player/animations/swordsman_idle_02.png",
+	"res://assets/characters/player/animations/swordsman_idle_03.png",
+	"res://assets/characters/player/animations/swordsman_idle_04.png",
+	"res://assets/characters/player/animations/swordsman_idle_05.png",
+	"res://assets/characters/player/animations/swordsman_idle_06.png",
+	"res://assets/characters/player/animations/swordsman_idle_07.png",
+	"res://assets/characters/player/animations/swordsman_idle_08.png",
+]
 
 var _failures: Array[String] = []
 
@@ -20,7 +29,7 @@ func _ready() -> void:
 		_finish()
 		return
 
-	_check(hero.texture.resource_path == IDLE_TEXTURE, "idle texture is active before roll")
+	_check(hero.texture.resource_path in IDLE_TEXTURES, "idle animation is active before roll")
 
 	Input.action_press(&"roll")
 	await _physics_frames(2)
@@ -30,7 +39,7 @@ func _ready() -> void:
 	_check(int(player.get("state")) == 4, "player entered roll state")
 	_check(hero.texture.resource_path == ROLL_TEXTURE, "roll pose texture is active")
 	hero.call("_update_action_pose")
-	var expected_center: Vector2 = player.global_position + Vector2(0, -11)
+	var expected_center: Vector2 = player.global_position + Vector2(0, -13)
 	print("    roll center actual=%s expected=%s local=%s parent_rotation=%.3f" % [
 		hero.global_position, expected_center, hero.position, hero.get_parent().rotation
 	])
@@ -43,9 +52,11 @@ func _ready() -> void:
 		var save_error := capture.save_png(ProjectSettings.globalize_path(capture_path))
 		_check(save_error == OK, "roll preview capture saved")
 
-	await _physics_frames(30)
+	# Allow residual roll velocity to enter the presentation-only stop recovery
+	# before requiring the final idle pose.
+	await _physics_frames(60)
 	await get_tree().process_frame
-	_check(hero.texture.resource_path == IDLE_TEXTURE, "idle texture returns after roll")
+	_check(hero.texture.resource_path in IDLE_TEXTURES, "idle animation returns after roll")
 	_finish()
 
 
