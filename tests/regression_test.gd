@@ -43,16 +43,21 @@ func _ready() -> void:
 
 # ---------------------------------------------------------------- #2
 
-## 攻击中换武器不能污染这次攻击的伤害与时间轴
+## 攻击中换武器不能污染这次攻击的伤害与时间轴。
+##
+## 玩家已经没有换武器的输入了（武器绑定角色），但这条不变量依然要守：
+## 掉落/词条系统迟早会在任意时刻调 Player.equip()，而伤害和时间轴走的是
+## _enter_attack() 时锁定的 _active_weapon / _active_step。
+## 所以测试从"按 K 键"改成"直接调 equip()"，测的还是同一件事。
 func _test_issue_2_weapon_swap_during_attack() -> void:
 	print("\n[#2] 攻击中切换武器")
 	var player := get_tree().get_first_node_in_group(&"player") as Player
 	var weapon_before: WeaponData = player.weapon
-	var name_before: String = weapon_before.display_name
 
 	# 在前摇 / 判定 / 后摇三个阶段各试一次
 	for phase_name in ["前摇", "判定", "后摇"]:
 		await _wait_until_idle(player)
+		player.equip(weapon_before)
 		Input.action_press(&"attack")
 		await _frames(1)
 		Input.action_release(&"attack")
@@ -69,30 +74,29 @@ func _test_issue_2_weapon_swap_during_attack() -> void:
 		var dmg_before: int = player.hitbox.damage
 		var step_before: AttackStep = player._active_step
 
-		Input.action_press(&"swap_weapon")
-		await _frames(1)
-		Input.action_release(&"swap_weapon")
+		var incoming := Weapons.heavy_hammer()   # 数值和时间轴都和锈剑差得很远
+		player.equip(incoming)
 		await _frames(1)
 
 		_check(player.hitbox.damage == dmg_before,
 			"#2 %s 阶段换武器后伤害不变 (%d)" % [phase_name, player.hitbox.damage])
 		_check(player._active_step == step_before,
 			"#2 %s 阶段换武器后招式时间轴不变" % phase_name)
-		_check(player.weapon == weapon_before,
-			"#2 %s 阶段攻击进行中当前武器不变" % phase_name)
+		_check(player._active_weapon == weapon_before,
+			"#2 %s 阶段这一击仍然结算在旧武器上" % phase_name)
 
-		# 攻击结束后排队的换武器要生效
+		# 但下一次起手要用新武器
 		await _wait_until_idle(player)
-		_check(player.weapon != weapon_before,
-			"#2 %s 阶段攻击结束后换武器生效（%s → %s）"
-				% [phase_name, name_before, player.weapon.display_name])
-		# 换回来，方便下一轮从同一把武器开始
-		weapon_before = player.weapon
-		name_before = weapon_before.display_name
+		_check(player.weapon == incoming,
+			"#2 %s 阶段攻击结束后已经换成新武器（%s）"
+				% [phase_name, player.weapon.display_name])
+		await _tap(&"attack")
+		await _frames(2)
+		_check(player._active_weapon == incoming,
+			"#2 %s 阶段下一次起手用的是新武器" % phase_name)
+		await _run_until_idle(player, 200)
 
-	# 武器索引与实例必须一致，不能出现 HUD 显示 A 实际用 B
-	_check(player.weapons[player.weapon_index] == player.weapon,
-		"#2 weapon_index 与当前武器一致")
+	player.equip(weapon_before)
 
 
 # ---------------------------------------------------------------- #3
@@ -202,11 +206,14 @@ func _test_issue_6_room_transition_clears_queue() -> void:
 	print("\n[#6] 换房间清理瞬时状态")
 	await _clear_enemies()
 	var player := get_tree().get_first_node_in_group(&"player") as Player
+	# 重锤的取消点在 0.54 秒，够我们从容地塞两个意图进去再进门。
+	# 换成锈剑的话槽里的翻滚可能在进门前就兑现掉，测的东西就没了。
+	await _equip(player, Weapons.heavy_hammer())
 	await _wait_until_idle(player)
 	var weapon_before: WeaponData = player.weapon
 	var hp_before: int = player.health.current
 
-	# 攻击中先预约续击，再用换武器把它覆盖掉（意图槽只留最后一个）
+	# 攻击中先预约续击，再用翻滚把它覆盖掉（意图槽只留最后一个）
 	Input.action_press(&"attack")
 	await _frames(1)
 	Input.action_release(&"attack")
@@ -216,8 +223,8 @@ func _test_issue_6_room_transition_clears_queue() -> void:
 		return
 	await _tap(&"attack")
 	_check(player._pending_intent == Player.Intent.ATTACK, "#6 攻击中按攻击进入意图槽")
-	await _tap(&"swap_weapon")
-	_check(player._pending_intent == Player.Intent.SWAP, "#6 换武器覆盖了尚未开始的续击")
+	await _tap(&"roll")
+	_check(player._pending_intent == Player.Intent.ROLL, "#6 翻滚覆盖了尚未开始的续击")
 
 	# 攻击还没结束就进门
 	_check(player.state == Player.State.ATTACK, "#6 进门时仍在攻击中")
@@ -233,15 +240,19 @@ func _test_issue_6_room_transition_clears_queue() -> void:
 	_check(player.health.current == hp_before,
 		"#6 血量跨房间保留（%d）" % player.health.current)
 
-	# 新房间里完整打一套，结束时不能冒出上一房间遗留的换武器
+	# 新房间里完整打一套，结束时不能冒出上一房间遗留的翻滚
 	await _wait_until_idle(player)
 	Input.action_press(&"attack")
 	await _frames(1)
 	Input.action_release(&"attack")
-	await _wait_until_idle(player)
-	await _frames(30)
-	_check(player.weapon == weapon_before,
-		"#6 新房间攻击结束后没有触发遗留的换武器（%s）" % player.weapon.display_name)
+	var stray_roll := false
+	for i in 90:
+		await get_tree().physics_frame
+		if player.state == Player.State.ROLL:
+			stray_roll = true
+			break
+	_check(not stray_roll, "#6 新房间攻击结束后没有触发遗留的翻滚")
+	await _equip(player, Weapons.rusty_sword())
 
 
 # ---------------------------------------------------------------- #9
@@ -266,7 +277,9 @@ func _test_issue_9_intent_slot() -> void:
 	_check(max_index <= 1, "#9 第一击内点 10 次最多只多打出一击（最远打到第 %d 段）" % (max_index + 1))
 
 	# --- B. 分布点击也不能越过末段无限循环 ---
-	_equip(player, Weapons.rusty_sword())      # 三段连招
+	var sword := Weapons.rusty_sword()
+	var last_step := sword.combo.size() - 1     # 别写死段数，加招式时这里要自己跟上
+	_equip(player, sword)
 	await _wait_until_idle(player)
 	var seen_idle := false
 	var deepest := 0
@@ -281,12 +294,13 @@ func _test_issue_9_intent_slot() -> void:
 		else:
 			seen_idle = true
 	Input.action_release(&"attack")
-	_check(deepest <= 2, "#9 持续点击没有越过三段连招的末段（最远第 %d 段）" % (deepest + 1))
+	_check(deepest <= last_step, "#9 持续点击没有越过 %d 段连招的末段（最远第 %d 段）"
+		% [sword.combo.size(), deepest + 1])
 	_check(seen_idle, "#9 连招打完会退出攻击状态，不是一直循环")
 
 	# --- C. 更新的意图能覆盖尚未开始的续击 ---
 	for case in [[&"roll", Player.Intent.ROLL], [&"jump", Player.Intent.JUMP],
-			[&"swap_weapon", Player.Intent.SWAP], [&"move_left", Player.Intent.MOVE]]:
+			[&"move_left", Player.Intent.MOVE]]:
 		await _equip(player, Weapons.heavy_hammer())
 		await _wait_until_idle(player)
 		await _tap(&"attack")
@@ -350,7 +364,7 @@ func _clear_enemies() -> void:
 func _equip(player: Player, w: WeaponData) -> void:
 	# 别在出招途中换 —— 那是 issue #2 明确禁止的事
 	await _run_until_idle(player, 200)
-	player.weapon = w
+	player.equip(w)
 	player.clear_transient_state()
 
 

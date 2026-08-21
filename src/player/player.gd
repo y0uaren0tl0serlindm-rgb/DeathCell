@@ -25,7 +25,7 @@ enum AttackPhase { WINDUP, ACTIVE, RECOVERY }
 ## 以前是两个各自独立的布尔预约位，谁也覆盖不了谁，
 ## 于是"想改主意"这件事做不到 —— 玩家感觉像卡在攻击动画里。
 ## MOVE 不产生动作，它的作用是把尚未开始的续击清掉。
-enum Intent { NONE, MOVE, ATTACK, ROLL, JUMP, SWAP }
+enum Intent { NONE, MOVE, ATTACK, ROLL, JUMP }
 
 # --- 移动 ---
 const RUN_SPEED := 190.0
@@ -81,8 +81,9 @@ var _state_time := 0.0
 var _hurt_dir := 1.0
 
 # 武器 / 连招
-var weapons: Array[WeaponData] = []
-var weapon_index := 0
+## 武器绑定在角色身上，游戏中不能切换 —— 一个角色 = 一套连招 = 一套攻击动画。
+## 换武器的输入（原来的 K 键）已经移除；要改装备走 equip()，
+## 后续的掉落/词条系统也从那里进来。
 var weapon: WeaponData
 var _combo_index := 0
 var _combo_timer := 0.0          ## 距离上次攻击结束多久，超过 combo_window 连招重置
@@ -101,8 +102,7 @@ var _flash := 0.0
 
 
 func _ready() -> void:
-	weapons = Weapons.all()
-	weapon = weapons[weapon_index]
+	weapon = Weapons.rusty_sword()
 	health.invulnerable_time_on_hit = HURT_IFRAME
 	health.changed.connect(func(c, m): Events.player_health_changed.emit(c, m))
 	health.damaged.connect(_on_damaged)
@@ -171,9 +171,6 @@ func _read_input() -> void:
 	if Input.is_action_just_pressed(&"roll"):
 		if attacking: _set_intent(Intent.ROLL)
 		else: _roll_buffer = INPUT_BUFFER_TIME
-	if Input.is_action_just_pressed(&"swap_weapon"):
-		if attacking: _set_intent(Intent.SWAP)
-		else: _swap_weapon()
 	# 新按下方向键 = 改主意了，把还没开始的续击清掉。
 	# 用"刚按下"而不是"按住"：按住方向打连招是常规操作，不该被当成放弃续击。
 	if attacking and (Input.is_action_just_pressed(&"move_left")
@@ -191,9 +188,15 @@ func _set_intent(intent: Intent) -> void:
 	_pending_intent = intent
 
 
-func _swap_weapon() -> void:
-	weapon_index = (weapon_index + 1) % weapons.size()
-	weapon = weapons[weapon_index]
+## 换上另一把武器。玩家没有对应的输入 —— 这是给掉落/词条系统和测试用的。
+##
+## 攻击进行中调用不会影响这一击：伤害和时间轴走 _active_weapon / _active_step，
+## 那两个字段在 _enter_attack() 时就锁定了（issue #2）。
+## 新武器从下一次起手开始生效，连招计数也一并归零。
+func equip(new_weapon: WeaponData) -> void:
+	if new_weapon == null or new_weapon == weapon:
+		return
+	weapon = new_weapon
 	_combo_index = 0
 	blade_rect.color = weapon.color
 	Events.player_weapon_changed.emit(weapon.display_name)
@@ -357,8 +360,8 @@ func _process_attack(delta: float) -> void:
 ## 到了取消点，兑现槽里的那个意图。返回 true 表示已经转去别的状态。
 ##
 ## 只有翻滚和跳跃会真的截断后摇 —— 它们是"取消"。
-## 换武器和移动不截断：当前这一击仍然打完，保留出招的承诺感，
-## 它们的作用只是让尚未开始的续击不再发生。
+## 移动不截断：当前这一击仍然打完，保留出招的承诺感，
+## 它的作用只是让尚未开始的续击不再发生。
 func _consume_intent_at_cancel_point() -> bool:
 	match _pending_intent:
 		Intent.ROLL:
@@ -393,14 +396,12 @@ func _end_attack() -> void:
 
 
 ## 攻击彻底结束时结算剩下的意图。
-## 换武器只在这里生效 —— 连招中途的取消接续仍算同一次攻击序列，
-## 整个序列必须用同一把武器（issue #2）。
+## 到这里还没兑现的只剩"没赶上取消点"的翻滚和跳跃 —— 转成常规输入缓冲，
+## 交给下一帧的状态机自己判断能不能做。
 func _resolve_intent_after_attack() -> void:
 	var intent := _pending_intent
 	_pending_intent = Intent.NONE
 	match intent:
-		Intent.SWAP:
-			_swap_weapon()
 		Intent.ROLL:
 			_roll_buffer = INPUT_BUFFER_TIME
 		Intent.JUMP:

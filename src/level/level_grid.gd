@@ -11,8 +11,13 @@ extends RefCounted
 
 const JumpModel = preload("res://src/level/jump_model.gd")
 const AgentCarver = preload("res://src/level/agent_carver.gd")
+const RoomChunk = preload("res://src/level/room_chunk.gd")
+const ChunkLibrary = preload("res://src/level/chunk_library.gd")
 
 const TILE := 16
+## 默认房间宽度。宽度是**实例变量** `width`，因为模板块生成器把若干张手绘的
+## chunk 横向拼起来，最终宽度是各块之和、每次都不一样。
+## 高度仍然是常量：所有 chunk 都是 H 行高，拼接只有横向一个自由度。
 const W := 92
 const H := 24
 
@@ -34,6 +39,9 @@ const BODY_TILES := 2
 ## 画得出来站不上去（issue #7）。generation_test 会断言这条关系。
 const PLATFORM_CLEARANCE := BODY_TILES
 
+## 这个房间实际有多少列。build() 会按生成器的产出重设它。
+var width := W
+
 var solid: Array[PackedByteArray] = []
 var ground_row: PackedInt32Array = PackedInt32Array()
 var roof_row: PackedInt32Array = PackedInt32Array()
@@ -48,9 +56,28 @@ var exit_x := W - 6
 var entrance_cell: Vector2i
 var exit_cell: Vector2i
 
-## 用哪个生成器。做成静态变量是为了能 A/B 对比：
-## 关卡测试会两个都跑一遍，对比指标。
-static var use_agent_carver := true
+## 三个生成器：
+##   HEIGHTMAP —— 地面随机游走 + 悬空平台，出来的是"一条走廊 + 挂件"
+##   AGENT     —— 智能体从入口用真实动作挖到出口，出来的是洞穴
+##   CHUNKS    —— 把 assets/levels/chunks 里手绘的模板块横向拼起来
+## 做成静态变量是为了能 A/B 对比：关卡测试三个都跑一遍，对比指标。
+enum Generator { HEIGHTMAP, AGENT, CHUNKS }
+
+static var generator: Generator = Generator.CHUNKS
+
+## 拼接后左右各封几列，免得玩家从模板块的边缘走出房间
+const BORDER := 2
+## 拼到多宽就够一层了。凑不成整数没关系，最后一块整块放进去。
+const CHUNK_TARGET_COLS := 78
+
+## 模板块作者亲手标出来的刷怪点：`[{cell: Vector2i, elite: bool}, ...]`。
+## 只有 CHUNKS 生成器会填它 —— 另外两个生成器是程序化的，"这里该站个精英"
+## 这种判断没人做过，只能由 spawn_footholds() 随机挑。
+var authored_spawns: Array = []
+
+## 这个房间是用哪个生成器实际造出来的。
+## CHUNKS 拼不出通路时会退回 AGENT，所以它不一定等于 `generator`。
+var used_generator: Generator = Generator.AGENT
 
 ## 生成时做了几次修复。正常应该恒为 0；测试会盯着这个值。
 var repairs := 0
@@ -68,26 +95,157 @@ func _invalidate_reach() -> void:
 	_reach_cache = null
 
 
-func build(rng: RandomNumberGenerator) -> void:
+func build(rng: RandomNumberGenerator, depth: int = 0) -> void:
 	_rng = rng
 	repairs = 0
 	pruned_platforms = 0
-	if use_agent_carver:
+	authored_spawns = []
+	width = W
+	match generator:
+		Generator.CHUNKS:
+			_build_with_chunks(depth)
+		Generator.HEIGHTMAP:
+			used_generator = Generator.HEIGHTMAP
+			_build_with_heightmap()
+		_:
+			used_generator = Generator.AGENT
+			_build_with_agent()
+
+
+# ---------------------------------------------------------------- 模板块拼接
+
+## 把手绘的模板块横向接起来。
+##
+## 和另外两个生成器的关系：这里的关卡结构是**人定的**，程序只负责挑块、
+## 验接缝、兜底。所以它是唯一一个可能"造不出来"的生成器 —— 块库为空、
+## 或者手上的块凑不出一条通路时退回智能体挖掘，保证任何情况下都有关卡可玩。
+##
+## 接缝的判据和房间内部完全一样：从上一块的出口落脚点往右走一格到下一块的
+## 入口落脚点，这一步必须是 JumpModel 里真实存在的移动。挑块时先用位移表
+## 粗筛（便宜），拼完再整体跑一次 BFS 兜底（准确）。
+func _build_with_chunks(depth: int) -> void:
+	var pool := ChunkLibrary.for_depth(depth)
+	if pool.is_empty():
+		used_generator = Generator.AGENT
 		_build_with_agent()
-	else:
-		_build_with_heightmap()
+		return
+	for attempt in 8:
+		var seq := _pick_chunk_sequence(pool)
+		if seq.is_empty():
+			continue
+		_assemble_chunks(seq)
+		if exit_reachable():
+			used_generator = Generator.CHUNKS
+			return
+		repairs += 1
+	# 手上的块凑不出通路。别把关卡铲平，换个生成器还能玩。
+	used_generator = Generator.AGENT
+	_build_with_agent()
+
+
+## 用指定的模板块序列直接拼，跳过随机挑块。校验工具和预览用。
+##
+## 刻意不做成 `static func from_chunks() -> LevelGrid` 那样的工厂：
+## 那要在本文件里写出自己的 `class_name`，而那个名字得查
+## `.godot/global_script_class_cache.cfg` —— 干净检出时缓存还不存在（issue #8）。
+## 调用方 preload 了本脚本，自己 `new()` 一个再调这个方法就没这个问题。
+func build_from_chunks(seq: Array) -> void:
+	_rng = RandomNumberGenerator.new()
+	repairs = 0
+	pruned_platforms = 0
+	_assemble_chunks(seq)
+	used_generator = Generator.CHUNKS
+
+
+func _pick_chunk_sequence(pool: Array) -> Array:
+	var seq: Array = []
+	var total := 0
+	var prev: RoomChunk = null
+	while total < CHUNK_TARGET_COLS:
+		var candidates: Array = []
+		for c in pool:
+			var chunk: RoomChunk = c
+			# 接缝：从 prev 的出口往右一格落到 chunk 的入口
+			if prev != null and not JumpModel.can_reach(
+					Vector2i(1, chunk.entry.y - prev.exit_cell.y)):
+				continue
+			# 尽量别连着用同一块 —— 两段一模一样的地形一眼就看出来是拼的
+			if chunk == prev and pool.size() > 1:
+				continue
+			candidates.append(chunk)
+		if candidates.is_empty():
+			return []
+		var picked := _weighted_pick(candidates)
+		seq.append(picked)
+		total += picked.width
+		prev = picked
+	return seq
+
+
+func _weighted_pick(candidates: Array) -> RoomChunk:
+	var total := 0.0
+	for c in candidates:
+		total += maxf((c as RoomChunk).weight, 0.0)
+	if total <= 0.0:
+		return candidates[_rng.randi() % candidates.size()]
+	var roll := _rng.randf() * total
+	for c in candidates:
+		roll -= maxf((c as RoomChunk).weight, 0.0)
+		if roll <= 0.0:
+			return c
+	return candidates[candidates.size() - 1]
+
+
+func _assemble_chunks(seq: Array) -> void:
+	_invalidate_reach()
+	authored_spawns = []
+
+	var inner := 0
+	for c in seq:
+		inner += (c as RoomChunk).width
+	width = BORDER * 2 + inner
+
+	# 先整块填实心，左右封边就自然有了；模板块再逐列覆盖进去
+	solid = []
+	for x in width:
+		var col := PackedByteArray()
+		col.resize(H)
+		col.fill(1)
+		solid.append(col)
+
+	var ox := BORDER
+	for i in seq.size():
+		var c: RoomChunk = seq[i]
+		for x in c.width:
+			for y in H:
+				solid[ox + x][y] = c.solid[x][y]
+		for cell in c.spawns:
+			authored_spawns.append({"cell": Vector2i(ox + cell.x, cell.y), "elite": false})
+		for cell in c.elite_spawns:
+			authored_spawns.append({"cell": Vector2i(ox + cell.x, cell.y), "elite": true})
+		if i == 0:
+			entrance_cell = Vector2i(ox + c.entry.x, c.entry.y)
+		if i == seq.size() - 1:
+			exit_cell = Vector2i(ox + c.exit_cell.x, c.exit_cell.y)
+		ox += c.width
+
+	entrance_x = entrance_cell.x
+	exit_x = exit_cell.x
+	# 模板块里没有"悬空平台"这个概念，整张图都是地形
+	_snapshot_terrain()
+	_invalidate_reach()
 
 
 ## 智能体挖掘：可达性是路径本身的性质，不需要事后推导约束
 func _build_with_agent() -> void:
 	# 挖出来的路偶尔会把自己堵死（智能体绕回自己挖开的区域）。
 	# 与其把关卡铲平成一条直走廊，不如换个随机流重挖 —— 保住关卡质量。
-	var base_exit := W - 6
+	var base_exit := width - 6
 	for attempt in 4:
 		var rng := RandomNumberGenerator.new()
 		rng.seed = _rng.randi()
 		var carver := AgentCarver.new()
-		carver.carve(W, H, rng, 4, base_exit)
+		carver.carve(width, H, rng, 4, base_exit)
 		solid = carver.solid
 		entrance_cell = carver.entrance_cell
 		exit_cell = carver.exit_cell
@@ -154,7 +312,7 @@ func _seal_unreachable_footholds() -> void:
 func _stranded_footholds() -> Array[Vector2i]:
 	var reach := reachable_cells()
 	var out: Array[Vector2i] = []
-	for x in W:
+	for x in width:
 		for y in H:
 			if is_standable(x, y) and not reach.has(Vector2i(x, y)):
 				out.append(Vector2i(x, y))
@@ -179,7 +337,7 @@ func _try_seal(cells: Array) -> bool:
 func _dig_straight_corridor() -> void:
 	_invalidate_reach()
 	var y := entrance_cell.y
-	for x in range(2, W - 2):
+	for x in range(2, width - 2):
 		for dy in range(0, BODY_TILES + 2):
 			solid[x][y - dy] = 0
 		solid[x][y + 1] = 1
@@ -192,23 +350,23 @@ func _dig_straight_corridor() -> void:
 func _build_heightmap() -> void:
 	_invalidate_reach()
 	solid.clear()
-	for x in W:
+	for x in width:
 		var col := PackedByteArray()
 		col.resize(H)
 		solid.append(col)
 
 	ground_row = PackedInt32Array()
-	ground_row.resize(W)
+	ground_row.resize(width)
 	roof_row = PackedInt32Array()
-	roof_row.resize(W)
+	roof_row.resize(width)
 
 	var g := MAX_GROUND_ROW - 2
 	var r := 2
 	var since_step := 0
-	for x in W:
+	for x in width:
 		since_step += 1
 		# 两次台阶之间至少隔 MIN_LEDGE_RUN 格，避免一格宽的锯齿地形
-		if x > 6 and x < W - 8 and since_step >= MIN_LEDGE_RUN and _rng.randf() < 0.3:
+		if x > 6 and x < width - 8 and since_step >= MIN_LEDGE_RUN and _rng.randf() < 0.3:
 			g = clampi(g + _rng.randi_range(-MAX_STEP, MAX_STEP), MIN_GROUND_ROW, MAX_GROUND_ROW)
 			since_step = 0
 		if _rng.randf() < 0.2:
@@ -223,14 +381,14 @@ func _build_heightmap() -> void:
 	for y in H:
 		solid[0][y] = 1
 		solid[1][y] = 1
-		solid[W - 1][y] = 1
-		solid[W - 2][y] = 1
+		solid[width - 1][y] = 1
+		solid[width - 2][y] = 1
 
 	# 出入口附近铲平，避免出生就卡在斜坡里
 	for x in range(2, 7):
 		_flatten_column(x, MAX_GROUND_ROW - 2)
-	for x in range(W - 8, W - 2):
-		_flatten_column(x, ground_row[W - 9])
+	for x in range(width - 8, width - 2):
+		_flatten_column(x, ground_row[width - 9])
 
 
 func _flatten_column(x: int, row: int) -> void:
@@ -247,12 +405,12 @@ func _flatten_column(x: int, row: int) -> void:
 ## 自己和左右邻居里最高的那个落脚点，再往上留出身高。
 func _compute_corridor_ceiling() -> void:
 	corridor_ceiling = PackedInt32Array()
-	corridor_ceiling.resize(W)
-	for x in W:
+	corridor_ceiling.resize(width)
+	for x in width:
 		var apex := ground_row[x] - 1
 		if x > 0:
 			apex = mini(apex, ground_row[x - 1] - 1)
-		if x < W - 1:
+		if x < width - 1:
 			apex = mini(apex, ground_row[x + 1] - 1)
 		corridor_ceiling[x] = apex - (BODY_TILES - 1)
 
@@ -268,15 +426,15 @@ func _carve_platforms() -> void:
 	# 上下相隔正好 BODY_TILES 时人塞得进去，但移动过去需要顶点有 BODY_TILES 格净空，
 	# 正好被上层挡死。与其事后检测，不如一开始就不让它们叠。
 	var occupied := PackedByteArray()
-	occupied.resize(W)
+	occupied.resize(width)
 
 	var placed: Array = []   # [x0, x1, tile_row]
 	for i in _rng.randi_range(7, 12):
 		var x0 := -1
 		var x1 := -1
 		for attempt in 6:
-			var a := _rng.randi_range(6, W - 12)
-			var b := mini(a + _rng.randi_range(3, 7), W - 2)
+			var a := _rng.randi_range(6, width - 12)
+			var b := mini(a + _rng.randi_range(3, 7), width - 2)
 			# 左右各留一列空隙，起跳的那一列不能被别的平台占着
 			if _span_free(occupied, a - 1, b + 1):
 				x0 = a
@@ -296,7 +454,7 @@ func _carve_platforms() -> void:
 		if _rng.randf() > 0.45:
 			continue
 		var a: int = p[1]                      # 紧接下层右缘，起跳点是下层最后一列
-		var b: int = mini(a + _rng.randi_range(3, 5), W - 2)
+		var b: int = mini(a + _rng.randi_range(3, 5), width - 2)
 		if b - a < 2 or not _span_free(occupied, a, b + 1):
 			continue
 		var support2: int = p[2] - 1           # 下层平台的落脚点
@@ -306,14 +464,14 @@ func _carve_platforms() -> void:
 
 
 func _span_free(occupied: PackedByteArray, x0: int, x1: int) -> bool:
-	for x in range(maxi(x0, 0), mini(x1, W)):
+	for x in range(maxi(x0, 0), mini(x1, width)):
 		if occupied[x] == 1:
 			return false
 	return true
 
 
 func _mark_span(occupied: PackedByteArray, x0: int, x1: int) -> void:
-	for x in range(maxi(x0, 0), mini(x1, W)):
+	for x in range(maxi(x0, 0), mini(x1, width)):
 		occupied[x] = 1
 
 
@@ -369,9 +527,9 @@ func _component_reachable(comp: Array, reach: Dictionary) -> bool:
 
 ## 悬空平台的砖块（地形之外后来加上去的那些）
 func is_platform_tile(x: int, y: int) -> bool:
-	if x < 0 or x >= W or y < 0 or y >= H or solid[x][y] == 0:
+	if x < 0 or x >= width or y < 0 or y >= H or solid[x][y] == 0:
 		return false
-	return _terrain_snapshot.size() == W and _terrain_snapshot[x][y] == 0
+	return _terrain_snapshot.size() == width and _terrain_snapshot[x][y] == 0
 
 
 ## 把相连的平台砖块分组，一组就是玩家眼里的"一块平台"
@@ -379,7 +537,7 @@ func platform_components() -> Array:
 	const NEIGHBORS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 	var seen := {}
 	var comps := []
-	for x in W:
+	for x in width:
 		for y in H:
 			if not is_platform_tile(x, y):
 				continue
@@ -424,18 +582,18 @@ func unreachable_platform_count() -> int:
 
 func _snapshot_terrain() -> void:
 	_terrain_snapshot.clear()
-	for x in W:
+	for x in width:
 		_terrain_snapshot.append(solid[x].duplicate())
 
 
 func _restore_terrain() -> void:
 	_invalidate_reach()
-	for x in W:
+	for x in width:
 		solid[x] = _terrain_snapshot[x].duplicate()
 
 
 func _flatten_whole_corridor() -> void:
-	for x in range(2, W - 2):
+	for x in range(2, width - 2):
 		_flatten_column(x, MAX_GROUND_ROW - 2)
 	_snapshot_terrain()   # 地形变了，平台判定的基准也要跟着更新
 
@@ -443,7 +601,7 @@ func _flatten_whole_corridor() -> void:
 # ---------------------------------------------------------------- 查询
 
 func is_free(x: int, y: int) -> bool:
-	return x >= 0 and x < W and y >= 0 and y < H and solid[x][y] == 0
+	return x >= 0 and x < width and y >= 0 and y < H and solid[x][y] == 0
 
 
 ## (x, y) 能不能站人：脚下是实心，自己和头顶那格是空的
@@ -482,7 +640,7 @@ func _mask_clear(origin: Vector2i, mask: PackedInt32Array) -> bool:
 		# 内联解码：这是最内层循环，函数调用开销在这里很贵
 		var x := origin.x + (e / 256 - 64)
 		var y := origin.y + (e % 256 - 64)
-		if x < 0 or x >= W or y < 0 or y >= H:
+		if x < 0 or x >= width or y < 0 or y >= H:
 			return false
 		if solid[x][y] == 1:
 			return false
@@ -496,7 +654,7 @@ func reachable_cells() -> Dictionary:
 
 	# 先把"能站人"的格子刷成位图，BFS 里每个候选点只查一次数组
 	var standable: Array[PackedByteArray] = []
-	for x in W:
+	for x in width:
 		var col := PackedByteArray()
 		col.resize(H)
 		for y in H:
@@ -505,7 +663,7 @@ func reachable_cells() -> Dictionary:
 
 	var start := entrance_cell
 	var visited := {}
-	if start.x < 0 or start.x >= W or start.y < 0 or start.y >= H \
+	if start.x < 0 or start.x >= width or start.y < 0 or start.y >= H \
 			or standable[start.x][start.y] == 0:
 		_reach_cache = visited
 		return visited
@@ -517,7 +675,7 @@ func reachable_cells() -> Dictionary:
 		var cell: Vector2i = queue.pop_back()
 		for off in offsets:
 			var target: Vector2i = cell + off
-			if target.x < 0 or target.x >= W or target.y < 0 or target.y >= H:
+			if target.x < 0 or target.x >= width or target.y < 0 or target.y >= H:
 				continue
 			if standable[target.x][target.y] == 0 or visited.has(target):
 				continue
@@ -559,7 +717,7 @@ func spawn_footholds(rng: RandomNumberGenerator, count: int, min_gap: int = 6) -
 
 
 func world_size() -> Vector2:
-	return Vector2(W * TILE, H * TILE)
+	return Vector2(width * TILE, H * TILE)
 
 
 func tile_to_world(x: int, y: int) -> Vector2:

@@ -46,7 +46,7 @@ func _on_depth_changed(depth: int) -> void:
 
 
 func _on_weapon_changed(weapon_name: String) -> void:
-	weapon_label.text = "%s   [K] 换武器" % weapon_name
+	weapon_label.text = weapon_name
 
 
 func _on_restart_run() -> void:

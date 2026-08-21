@@ -6,8 +6,10 @@ extends Node
 # 干净检出或缓存过期时会解析失败、游戏起不来（issue #8）。
 const DamageInfo = preload("res://src/core/damage_info.gd")
 const Enemy = preload("res://src/enemies/enemy.gd")
+const HeroSprite = preload("res://assets/characters/player/runtime/hero_sprite.gd")
 const Player = preload("res://src/player/player.gd")
 const Room = preload("res://src/level/room.gd")
+const Weapons = preload("res://src/weapons/weapons.gd")
 
 const MainScene := preload("res://src/main.tscn")
 
@@ -97,7 +99,31 @@ func _ready() -> void:
 		"重开后玩家满血复活")
 	_check(is_equal_approx(Engine.time_scale, 1.0), "时间缩放已恢复正常 (%.2f)" % Engine.time_scale)
 
+	_check_combo_animations()
+
 	_finish()
+
+
+## 每一把武器的每一段招式都必须指向一套真实存在的攻击贴图。
+##
+## 表现层以前用 `_combo_index % 2` 在两套贴图之间轮换，锈剑三段配两套贴图
+## 就播成 A-B-A —— 三下连招看起来只有两下，玩家读不出连招打到哪了。
+## 段数和贴图数是各自变化的两个量，取模只在两者相等时碰巧成立。
+## 现在 AttackStep.anim 把这层对应关系写成了数据，这一项负责在加招式、
+## 或者删掉某套贴图时立刻报出来。
+func _check_combo_animations() -> void:
+	var known := HeroSprite.attack_anim_names()
+	for w in Weapons.all():
+		_check(not w.combo.is_empty(), "%s 有连招数据" % w.display_name)
+		for i in w.combo.size():
+			var anim: StringName = w.combo[i].anim
+			_check(anim in known,
+				"%s 第 %d 段指定的动画存在（%s）" % [w.display_name, i + 1, anim])
+		# 段数超过贴图数时必然有两段共用同一套动画，玩家会以为连招断了。
+		# 要加第三段，先让美术出第三套斩击。
+		_check(w.combo.size() <= known.size(),
+			"%s 的连招段数（%d）没有超过可用攻击动画数（%d）"
+				% [w.display_name, w.combo.size(), known.size()])
 
 
 func _frames(n: int) -> void:

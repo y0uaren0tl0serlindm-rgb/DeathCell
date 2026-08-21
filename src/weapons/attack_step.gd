@@ -15,6 +15,14 @@ extends Resource
 @export var hitbox_size: Vector2 = Vector2(26, 20)
 @export var hitstop: float = 0.04
 
+## 这一段用哪套攻击动画。**每段必须显式指定，不能由段号推**。
+##
+## 以前表现层用 `_combo_index % 2` 在两套贴图之间轮换，于是锈剑的三段连招
+## 播成 A-B-A：第三下和第一下长得一模一样，读起来像连招断了重新起手。
+## 段数和贴图数是两个会各自变化的量，取模只是碰巧在段数==贴图数时成立。
+## 写成数据之后，"连招和动画对不上"这件事在加招式时就会被测试挡下来。
+@export var anim: StringName = &"attack_a"
+
 
 func total_time() -> float:
 	return windup + active + recovery

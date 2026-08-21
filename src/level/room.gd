@@ -41,7 +41,7 @@ func generate(rng: RandomNumberGenerator, depth: int) -> void:
 	_tile_top_color = Color.from_hsv(hue, 0.25, 0.46)
 
 	grid = LevelGrid.new()
-	grid.build(rng)
+	grid.build(rng, depth)
 	if grid.repairs > 0:
 		push_warning("房间生成后做了 %d 次可达性修复（depth=%d）" % [grid.repairs, depth])
 
@@ -56,12 +56,12 @@ func _build_collision() -> void:
 	# 每行把连续的实心格合并成一个矩形，碰撞体数量能少一个数量级
 	for y in LevelGrid.H:
 		var x := 0
-		while x < LevelGrid.W:
+		while x < grid.width:
 			if grid.solid[x][y] == 0:
 				x += 1
 				continue
 			var start := x
-			while x < LevelGrid.W and grid.solid[x][y] == 1:
+			while x < grid.width and grid.solid[x][y] == 1:
 				x += 1
 			var run := x - start
 			var shape := CollisionShape2D.new()
@@ -88,23 +88,42 @@ func _place_actors(depth: int) -> void:
 	entities.add_child(door)
 	door.position = exit_position
 
-	# 只在"从入口真的走得到"的落脚点上刷怪，顺带敌人也能刷在平台上了
 	var enemy_count := clampi(4 + depth, 4, 11)
-	for cell in grid.spawn_footholds(_rng, enemy_count):
-		var scene: PackedScene = GruntScene
-		# 深度越大越容易刷精英
-		if _rng.randf() < minf(0.12 + depth * 0.06, 0.45):
-			scene = BruteScene
+	for spawn in _enemy_spawns(enemy_count, depth):
+		var scene: PackedScene = BruteScene if spawn.elite else GruntScene
 		var enemy := scene.instantiate() as Enemy
 		entities.add_child(enemy)
+		var cell: Vector2i = spawn.cell
 		enemy.position = grid.tile_to_world(cell.x, cell.y + 1)
 
 
-func _too_close(columns: Array[int], x: int) -> bool:
-	for c in columns:
-		if absi(c - x) < 6:
-			return true
-	return false
+## 这个房间该在哪些格子上刷怪，以及刷小兵还是精英。
+##
+## 模板块里作者用 `n` / `N` 亲手标过刷怪点，那就照他标的来 —— 手绘关卡的价值
+## 一半在地形，一半在"这一波怪摆在哪"。标的数量不够时用程序化的落脚点补齐。
+## 另外两个生成器没有作者，全部走 spawn_footholds()：只挑"从入口真的走得到"
+## 的落脚点，顺带敌人也能刷在平台/露台上。
+func _enemy_spawns(count: int, depth: int) -> Array:
+	var out: Array = []
+	var taken := {}
+	var authored: Array = grid.authored_spawns.duplicate()
+	authored.shuffle()
+	for spawn in authored:
+		if out.size() >= count:
+			break
+		var cell: Vector2i = spawn.cell
+		if not grid.is_standable(cell.x, cell.y):
+			continue
+		taken[cell] = true
+		out.append(spawn)
+
+	# 深度越大越容易刷精英（只作用于程序化补上来的那些，作者标的不改）
+	var elite_chance := minf(0.12 + depth * 0.06, 0.45)
+	for cell in grid.spawn_footholds(_rng, count - out.size()):
+		if taken.has(cell):
+			continue
+		out.append({"cell": cell, "elite": _rng.randf() < elite_chance})
+	return out
 
 
 func world_size() -> Vector2:
@@ -117,7 +136,7 @@ func _draw() -> void:
 	if grid == null:
 		return
 	draw_rect(Rect2(Vector2.ZERO, grid.world_size()), _bg_color)
-	for x in LevelGrid.W:
+	for x in grid.width:
 		for y in LevelGrid.H:
 			if grid.solid[x][y] == 0:
 				continue

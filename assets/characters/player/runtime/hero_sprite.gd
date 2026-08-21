@@ -242,10 +242,30 @@ func _show_idle() -> void:
 	scale = idle_scale
 
 
+## 这一段招式用哪套贴图，由 AttackStep.anim 直接给出。
+## 不要退回 `_combo_index % 2` —— 段数和贴图数是各自变化的两个量，
+## 取模只在两者相等时碰巧成立，锈剑三段配两套贴图时就播成了 A-B-A。
+func attack_frames_for(anim: StringName) -> Array[Texture2D]:
+	match anim:
+		&"attack_b":
+			return _attack_b_frames()
+		_:
+			return _attack_a_frames()
+
+
+## 有贴图的攻击动画名。测试拿它核对每把武器的每一段都指向存在的动画。
+static func attack_anim_names() -> Array[StringName]:
+	return [&"attack_a", &"attack_b"]
+
+
 func _show_attack() -> void:
-	var combo_value: Variant = _host.get("_combo_index")
-	var combo_index := int(combo_value) if combo_value != null else 0
-	var frames := _attack_b_frames() if combo_index % 2 == 1 else _attack_a_frames()
+	var active_step_for_anim: Variant = _host.get("_active_step")
+	var anim := &"attack_a"
+	if active_step_for_anim != null:
+		var configured_anim: Variant = active_step_for_anim.get("anim")
+		if configured_anim != null:
+			anim = StringName(configured_anim)
+	var frames := attack_frames_for(anim)
 	var phase_value: Variant = _host.get("_attack_phase")
 	var phase := int(phase_value) if phase_value != null else 0
 	var phase_time_value: Variant = _host.get("_phase_time")
@@ -253,10 +273,11 @@ func _show_attack() -> void:
 	var frame_index := 0
 
 	if phase == 0:
+		# 前四帧是起手姿势，摊在整个前摇里；第五帧的斩击弧和第六帧的余韵
+		# 分别正好占满判定与后摇 —— 三段时间片和这套贴图的三个节拍一一对应。
 		var windup := 0.08
-		var active_step: Variant = _host.get("_active_step")
-		if active_step != null:
-			var configured_windup: Variant = active_step.get("windup")
+		if active_step_for_anim != null:
+			var configured_windup: Variant = active_step_for_anim.get("windup")
 			if configured_windup != null:
 				windup = maxf(float(configured_windup), 0.001)
 		frame_index = clampi(int((phase_time / windup) * 4.0), 0, 3)

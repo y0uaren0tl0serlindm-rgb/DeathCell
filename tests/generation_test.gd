@@ -35,14 +35,15 @@ var _failures: Array[String] = []
 func _ready() -> void:
 	_check_constant_invariants()
 
-	var heightmap := _run_suite(false, "高度图")
-	var agent := _run_suite(true, "智能体挖掘")
-	_print_comparison(heightmap, agent)
+	var heightmap := _run_suite(LevelGrid.Generator.HEIGHTMAP, "高度图")
+	var agent := _run_suite(LevelGrid.Generator.AGENT, "智能体挖掘")
+	var chunks := _run_suite(LevelGrid.Generator.CHUNKS, "模板块拼接")
+	_print_comparison(heightmap, agent, chunks)
 
-	LevelGrid.use_agent_carver = true   # 跑完恢复默认
+	LevelGrid.generator = LevelGrid.Generator.CHUNKS   # 跑完恢复默认
 
 	if _failures.is_empty():
-		print("\n两个生成器的房间全部可通行")
+		print("\n三个生成器的房间全部可通行")
 		get_tree().quit(0)
 	else:
 		print("\n失败 %d 项，前 10 条：" % _failures.size())
@@ -51,13 +52,15 @@ func _ready() -> void:
 		get_tree().quit(1)
 
 
-func _run_suite(use_agent: bool, label: String) -> Dictionary:
-	LevelGrid.use_agent_carver = use_agent
+func _run_suite(gen: LevelGrid.Generator, label: String) -> Dictionary:
+	LevelGrid.generator = gen
+	var use_agent := gen == LevelGrid.Generator.AGENT
 	var stats := {
 		"label": label, "total": 0, "repaired": 0,
 		"worst_headroom": 99, "worst_step": 0,
 		"min_reach": 1.0, "platform_tiles": 0, "pruned": 0,
 		"open_ratio": 0.0, "span": 0, "worst_span": 99, "msec": 0,
+		"fell_back": 0, "authored": 0, "width": 0,
 	}
 	var t0 := Time.get_ticks_msec()
 
@@ -67,7 +70,12 @@ func _run_suite(use_agent: bool, label: String) -> Dictionary:
 			var rng := RandomNumberGenerator.new()
 			rng.seed = hash("seed_%d_depth_%d" % [s, depth])
 			var grid := LevelGrid.new()
-			grid.build(rng)
+			grid.build(rng, depth)
+			stats.width += grid.width
+			stats.authored += grid.authored_spawns.size()
+			if gen == LevelGrid.Generator.CHUNKS \
+				and grid.used_generator != LevelGrid.Generator.CHUNKS:
+				stats.fell_back += 1
 
 			if grid.repairs > 0:
 				stats.repaired += 1
@@ -87,7 +95,7 @@ func _run_suite(use_agent: bool, label: String) -> Dictionary:
 				_fail("%s seed=%d depth=%d 落脚点连通率只有 %.0f%%"
 					% [label, s, depth, m.reach_ratio * 100.0])
 
-			if use_agent:
+			if gen != LevelGrid.Generator.HEIGHTMAP:
 				stats.open_ratio += m.open_ratio
 				stats.span += m.span
 				stats.worst_span = mini(stats.worst_span, m.span)
@@ -109,19 +117,25 @@ func _run_suite(use_agent: bool, label: String) -> Dictionary:
 	return stats
 
 
-func _print_comparison(a: Dictionary, b: Dictionary) -> void:
+func _print_comparison(a: Dictionary, b: Dictionary, c: Dictionary) -> void:
 	print("\n每个生成器 %d 个房间（%d seed × %d 深度）\n" % [a.total, SEED_COUNT, DEPTHS.size()])
-	print("  %-22s %-16s %-16s" % ["指标", a.label, b.label])
-	print("  " + "-".repeat(56))
-	_row("落脚点连通率", "%.0f%%" % (a.min_reach * 100.0), "%.0f%%" % (b.min_reach * 100.0))
-	_row("触发修复", "%d" % a.repaired, "%d" % b.repaired)
-	_row("平均可玩平台", "%.1f 格" % (float(a.platform_tiles) / float(a.total)), "—（洞穴无平台）")
-	_row("剪掉的够不着平台", "%d" % a.pruned, "%d" % b.pruned)
-	_row("最差地面净空", "%d 格" % a.worst_headroom, "—")
-	_row("最大地面落差", "%d 格" % a.worst_step, "—")
-	_row("空腔占比", "—", "%.0f%%" % (float(b.open_ratio) / float(b.total) * 100.0))
-	_row("可达区纵向跨度", "—", "%.1f 格（最小 %d）" % [float(b.span) / float(b.total), b.worst_span])
-	_row("生成耗时", "%.1f ms/房间" % (float(a.msec) / float(a.total)), "%.1f ms/房间" % (float(b.msec) / float(b.total)))
+	print("  %-22s %-18s %-18s %-18s" % ["指标", a.label, b.label, c.label])
+	print("  " + "-".repeat(76))
+	_row("落脚点连通率", _pct(a.min_reach), _pct(b.min_reach), _pct(c.min_reach))
+	_row("触发修复", "%d" % a.repaired, "%d" % b.repaired, "%d" % c.repaired)
+	_row("房间宽度", "%d 列" % (a.width / a.total), "%d 列" % (b.width / b.total),
+		"%d 列" % (c.width / c.total))
+	_row("平均可玩平台", "%.1f 格" % (float(a.platform_tiles) / float(a.total)),
+		"—（洞穴无平台）", "—（手绘地形）")
+	_row("剪掉的够不着平台", "%d" % a.pruned, "%d" % b.pruned, "%d" % c.pruned)
+	_row("最差地面净空", "%d 格" % a.worst_headroom, "—", "—")
+	_row("最大地面落差", "%d 格" % a.worst_step, "—", "—")
+	_row("空腔占比", "—", _pct(float(b.open_ratio) / float(b.total)),
+		_pct(float(c.open_ratio) / float(c.total)))
+	_row("可达区纵向跨度", "—", "%.1f 格（最小 %d）" % [float(b.span) / float(b.total), b.worst_span],
+		"%.1f 格（最小 %d）" % [float(c.span) / float(c.total), c.worst_span])
+	_row("作者标的刷怪点", "—", "—", "%.1f 个/房间" % (float(c.authored) / float(c.total)))
+	_row("生成耗时", _ms(a), _ms(b), _ms(c))
 
 	# 智能体版本不能退化成一条平走廊 —— 那这次改动就白做了
 	var avg_span: float = float(b.span) / float(b.total)
@@ -134,10 +148,25 @@ func _print_comparison(a: Dictionary, b: Dictionary) -> void:
 	var avg_platform: float = float(a.platform_tiles) / float(a.total)
 	if avg_platform < 35.0:
 		_fail("高度图可玩平台平均只剩 %.1f 格，关卡太空旷" % avg_platform)
+	# 模板块拼接一旦退回智能体挖掘，玩家就看不到手绘的关卡了 —— 静默降级最难发现，
+	# 所以这里直接当失败报出来（chunk_test 会告诉你是哪几块接不上）
+	if c.fell_back > 0:
+		_fail("模板块拼接有 %d/%d 个房间凑不出通路，退回了智能体挖掘" % [c.fell_back, c.total])
+	# 手绘关卡的价值一半在"这一波怪摆在哪"。一个刷怪点都没标说明模板块里没写 n / N
+	if c.authored == 0:
+		_fail("模板块一个刷怪点都没标，敌人全靠程序化随机摆 —— 手绘就白画了")
 
 
-func _row(name: String, va: String, vb: String) -> void:
-	print("  %-22s %-16s %-16s" % [name, va, vb])
+func _pct(v: float) -> String:
+	return "%.0f%%" % (v * 100.0)
+
+
+func _ms(stats: Dictionary) -> String:
+	return "%.1f ms/房间" % (float(stats.msec) / float(stats.total))
+
+
+func _row(name: String, va: String, vb: String, vc: String) -> void:
+	print("  %-22s %-18s %-18s %-18s" % [name, va, vb, vc])
 
 
 func _fail(msg: String) -> void:
@@ -166,7 +195,7 @@ func _check_constant_invariants() -> void:
 ## 地面走廊上方最少留了几格空
 func _min_ground_headroom(grid: LevelGrid) -> int:
 	var worst := 99
-	for x in range(2, LevelGrid.W - 2):
+	for x in range(2, grid.width - 2):
 		var free_rows := 0
 		var y := grid.ground_row[x] - 1
 		while y > 0 and grid.is_free(x, y):
@@ -180,7 +209,7 @@ func _min_ground_headroom(grid: LevelGrid) -> int:
 
 func _max_ground_step(grid: LevelGrid) -> int:
 	var worst := 0
-	for x in range(3, LevelGrid.W - 3):
+	for x in range(3, grid.width - 3):
 		worst = maxi(worst, absi(grid.ground_row[x] - grid.ground_row[x - 1]))
 	return worst
 
@@ -190,7 +219,7 @@ func _measure(grid: LevelGrid) -> Dictionary:
 	var reach := grid.reachable_cells()
 	var standable := 0
 	var free_cells := 0
-	for x in LevelGrid.W:
+	for x in grid.width:
 		for y in LevelGrid.H:
 			if grid.solid[x][y] == 0:
 				free_cells += 1
@@ -204,6 +233,6 @@ func _measure(grid: LevelGrid) -> Dictionary:
 		bottom = maxi(bottom, c.y)
 	return {
 		"reach_ratio": float(reach.size()) / float(maxi(standable, 1)),
-		"open_ratio": float(free_cells) / float(LevelGrid.W * LevelGrid.H),
+		"open_ratio": float(free_cells) / float(grid.width * LevelGrid.H),
 		"span": maxi(bottom - top, 0) if bottom >= 0 else 0,
 	}
