@@ -1,0 +1,121 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/ui/meta_screen.gd" id="1_meta"]
+
+[node name="MetaScreen" type="CanvasLayer"]
+visible = false
+layer = 20
+script = ExtResource("1_meta")
+
+[node name="Root" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Backdrop" type="ColorRect" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.025, 0.02, 0.045, 0.96)
+
+[node name="Panel" type="ColorRect" parent="Root"]
+layout_mode = 0
+offset_left = 42.0
+offset_top = 24.0
+offset_right = 598.0
+offset_bottom = 336.0
+color = Color(0.09, 0.08, 0.14, 1)
+
+[node name="Title" type="Label" parent="Root/Panel"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 14.0
+offset_right = 532.0
+offset_bottom = 50.0
+theme_override_colors/font_color = Color(0.68, 1, 0.84, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 25
+text = "整 备 区"
+horizontal_alignment = 1
+
+[node name="Settlement" type="Label" parent="Root/Panel"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 55.0
+offset_right = 532.0
+offset_bottom = 82.0
+theme_override_colors/font_color = Color(0.86, 0.86, 0.92, 1)
+theme_override_font_sizes/font_size = 12
+text = "选择本局角色；角色一经选定，本局途中不再更换。"
+horizontal_alignment = 1
+
+[node name="Bank" type="Label" parent="Root/Panel"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 88.0
+offset_right = 532.0
+offset_bottom = 114.0
+theme_override_colors/font_color = Color(0.48, 1, 0.72, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 16
+text = "局外细胞  0"
+horizontal_alignment = 1
+
+[node name="Cards" type="HBoxContainer" parent="Root/Panel"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 122.0
+offset_right = 536.0
+offset_bottom = 218.0
+theme_override_constants/separation = 10
+
+[node name="RustyButton" type="Button" parent="Root/Panel/Cards"]
+custom_minimum_size = Vector2(165, 96)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 11
+text = "锈剑\n均衡 · 中距离两段连招\n◆ 当前选择"
+autowrap_mode = 2
+
+[node name="DaggersButton" type="Button" parent="Root/Panel/Cards"]
+custom_minimum_size = Vector2(165, 96)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 11
+text = "双匕\n贴身 · 快速取消与缠斗\n解锁 12 细胞"
+autowrap_mode = 2
+
+[node name="HammerButton" type="Button" parent="Root/Panel/Cards"]
+custom_minimum_size = Vector2(165, 96)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 11
+text = "重锤\n远距 · 预判与重击\n尚未开放"
+autowrap_mode = 2
+
+[node name="Status" type="Label" parent="Root/Panel"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 228.0
+offset_right = 532.0
+offset_bottom = 252.0
+theme_override_colors/font_color = Color(1, 0.78, 0.42, 1)
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 1
+
+[node name="StartButton" type="Button" parent="Root/Panel"]
+layout_mode = 0
+offset_left = 168.0
+offset_top = 263.0
+offset_right = 388.0
+offset_bottom = 298.0
+theme_override_font_sizes/font_size = 14
+text = "以锈剑开始新一局"

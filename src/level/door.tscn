@@ -31,9 +31,9 @@ offset_bottom = -2.0
 color = Color(0.45, 0.95, 0.8, 0.75)
 
 [node name="Prompt" type="Label" parent="."]
-offset_left = -40.0
+offset_left = -72.0
 offset_top = -62.0
-offset_right = 40.0
+offset_right = 72.0
 offset_bottom = -44.0
 theme_override_font_sizes/font_size = 11
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)

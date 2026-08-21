@@ -54,7 +54,7 @@ theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.5, 1, 0.75, 1)
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 4
-text = "细胞 0"
+text = "本局细胞 0"
 
 [node name="DepthLabel" type="Label" parent="Root"]
 offset_left = 470.0
@@ -64,7 +64,7 @@ offset_bottom = 30.0
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 4
-text = "第 1 层"
+text = "第 1 / 8 层"
 horizontal_alignment = 2
 
 [node name="WeaponLabel" type="Label" parent="Root"]
@@ -76,7 +76,7 @@ theme_override_font_sizes/font_size = 11
 theme_override_colors/font_color = Color(0.85, 0.85, 0.9, 1)
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 4
-text = "锈剑   [K] 换武器"
+text = "锈剑"
 
 [node name="HintLabel" type="Label" parent="Root"]
 offset_left = 330.0
@@ -89,39 +89,3 @@ theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 4
 text = "AD 移动  空格 跳  J 攻击  Shift 翻滚  E 进门"
 horizontal_alignment = 2
-
-[node name="DeathScreen" type="Control" parent="."]
-visible = false
-anchor_right = 1.0
-anchor_bottom = 1.0
-mouse_filter = 2
-
-[node name="Dim" type="ColorRect" parent="DeathScreen"]
-anchor_right = 1.0
-anchor_bottom = 1.0
-color = Color(0.05, 0.02, 0.04, 0.72)
-
-[node name="Title" type="Label" parent="DeathScreen"]
-offset_left = 120.0
-offset_top = 120.0
-offset_right = 520.0
-offset_bottom = 160.0
-theme_override_font_sizes/font_size = 32
-theme_override_colors/font_color = Color(0.9, 0.25, 0.3, 1)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 6
-text = "你 死 了"
-horizontal_alignment = 1
-
-[node name="Stats" type="Label" parent="DeathScreen"]
-offset_left = 120.0
-offset_top = 175.0
-offset_right = 520.0
-offset_bottom = 245.0
-theme_override_font_sizes/font_size = 13
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 4
-text = "深度 1 层    细胞 0
-
-[R] 重新开始"
-horizontal_alignment = 1

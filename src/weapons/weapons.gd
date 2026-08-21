@@ -83,8 +83,20 @@ static func heavy_hammer() -> WeaponData:
 	return w
 
 
+## 局外角色 ID 到本局武器数据的唯一映射。
+## 选人界面和 Player 都不需要各自维护一份 match。
+static func for_character(character_id: String) -> WeaponData:
+	match character_id:
+		"twin_daggers":
+			return twin_daggers()
+		"heavy_hammer":
+			return heavy_hammer()
+		_:
+			return rusty_sword()
+
+
 ## 武器库全表。玩家现在固定用锈剑（武器绑定角色），这里的另外两把
-## 是给后续掉落/词条系统留的，同时也让 smoke_test 能一次性校验
+## 分别对应局外可解锁角色，同时也让 smoke_test 能一次性校验
 ## "每一把武器的每一段都指定了存在的动画"。
 static func all() -> Array[WeaponData]:
 	return [rusty_sword(), twin_daggers(), heavy_hammer()]

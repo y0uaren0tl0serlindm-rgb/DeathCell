@@ -18,6 +18,7 @@ var main: Node
 
 
 func _ready() -> void:
+	Game.begin_test_session()
 	main = MainScene.instantiate()
 	add_child(main)
 	await _frames(10)
@@ -29,9 +30,13 @@ func _ready() -> void:
 	if player == null or enemies.is_empty():
 		_finish()
 		return
+	# 冒烟测试只留一个静止靶子验证命中；其余敌人若继续追击，随机地形下会
+	# 把玩家打进 HURT，令“按攻击”偶发失效，测到的是战斗干扰而不是攻击链路。
+	for enemy_node in enemies:
+		(enemy_node as Enemy).set_physics_process(false)
 
 	# 玩家应当站在地面上，而不是卡在墙里或掉出世界
-	await _frames(30)
+	await _wait_until_grounded(player, 120)
 	_check(player.is_on_floor(), "玩家落地并站稳 (y=%.1f)" % player.global_position.y)
 
 	# --- 攻击命中 ---
@@ -57,11 +62,13 @@ func _ready() -> void:
 	# --- 进入下一层 ---
 	var depth_before := Game.depth
 	Events.request_next_room.emit()
-	await _frames(10)
+	await _frames(2)
+	for enemy_node in get_tree().get_nodes_in_group(&"enemy"):
+		(enemy_node as Enemy).set_physics_process(false)
 	_check(Game.depth == depth_before + 1, "进门后深度 +1 (%d)" % Game.depth)
 	_check(get_tree().get_nodes_in_group(&"enemy").size() > 0, "新房间重新生成了敌人")
 	player = get_tree().get_first_node_in_group(&"player") as Player
-	await _frames(40)
+	await _wait_until_grounded(player, 120)
 	_check(player.is_on_floor(), "新房间入口可站立")
 
 	# 回归：房间的 _draw() 铺满整块背景，新房间又是后加进 world 的，
@@ -81,19 +88,23 @@ func _ready() -> void:
 	# 注意：GDScript 的 lambda 按值捕获局部变量，所以用数组当引用容器
 	var died := [false]
 	Events.player_died.connect(func(): died[0] = true)
+	var carried_cells := Game.cells
 	print("    (致命一击前 无敌=%s 血量=%d)" % [player.health.is_invulnerable, player.health.current])
 	player.health.end_iframes()   # 这里测的是死亡流程，不是无敌帧
 	player.health.take_damage(DamageInfo.new(9999, Vector2.LEFT, null))
 	await _frames(5)
 	_check(died[0], "玩家死亡事件触发")
 
-	# --- 死亡后重开 ---
+	# --- 死亡结算 → 局外界面 → 新一局 ---
 	await _frames(60)
-	Input.action_press(&"restart")
-	await _frames(2)
-	Input.action_release(&"restart")
+	var meta_screen := main.get_node("MetaScreen") as CanvasLayer
+	_check(meta_screen.visible, "死亡动作后进入局外结算界面")
+	_check(Game.meta_cells == carried_cells,
+		"死亡时本局细胞 100%% 入账（%d）" % Game.meta_cells)
+	_check(not Game.run_active, "结算后本局已结束")
+	main._on_start_requested()
 	await _frames(20)
-	_check(Game.depth == 0 and Game.cells == 0, "按 R 重开：深度与细胞归零")
+	_check(Game.depth == 0 and Game.cells == 0, "从局外开始新一局：深度与本局细胞归零")
 	var new_player := get_tree().get_first_node_in_group(&"player") as Player
 	_check(new_player != null and new_player.health.current == new_player.health.max_health,
 		"重开后玩家满血复活")
@@ -128,6 +139,13 @@ func _check_combo_animations() -> void:
 
 func _frames(n: int) -> void:
 	for i in n:
+		await get_tree().physics_frame
+
+
+func _wait_until_grounded(player: Player, max_frames: int) -> void:
+	for i in max_frames:
+		if player.is_on_floor():
+			return
 		await get_tree().physics_frame
 
 

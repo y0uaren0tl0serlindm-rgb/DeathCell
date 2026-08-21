@@ -27,6 +27,7 @@ git push origin main && git push github main
 godot --headless --path . --import                        # 首次克隆后跑一次（导入美术素材）
 godot --path .                                            # 直接开玩
 godot --headless --path . res://tests/smoke_test.tscn     # 冒烟测试：核心链路 15 项
+godot --headless --path . res://tests/run_flow_test.tscn  # 流程测试：8 层、结算、解锁、选人
 godot --headless --path . res://tests/generation_test.tscn # 关卡校验：三个生成器各 300 个房间
 godot --headless --path . res://tests/chunk_test.tscn      # 手绘模板块：画完 .room 跑这个
 godot --headless --path . res://tests/regression_test.tscn # 回归测试：已修 issue 不复发
@@ -58,16 +59,16 @@ bash tests/cold_start_check.sh                            # 冷启动：无缓�
 |---|---|
 | A / D、←/→ | 移动 |
 | 空格 | 跳（可变高度：松手即截断上升） |
-| J / 鼠标左键 | 攻击（三段连招） |
+| J / 鼠标左键 | 攻击（两段连招） |
 | Shift / L | 翻滚（有无敌帧，可取消攻击后摇） |
-| E | 在门口进入下一层 |
-| R | 死亡后重开 |
+| E | 清怪后进入下一层；L8 进入终点传送门 |
+| 鼠标 / Enter | 局外解锁、选人并开始下一局 |
 
 ## 目录
 
 ```
 src/
-  autoload/   Events(信号总线) Game(单次 run 状态) FX(顿帧/震屏/飘字)
+  autoload/   Events(信号总线) Game(run + 局外持久化状态) FX(顿帧/震屏/飘字)
   core/       Health, Hitbox, Hurtbox, DamageInfo —— 玩家和敌人共用同一套伤害管线
   player/     player.gd（枚举状态机：IDLE/RUN/JUMP/FALL/ROLL/ATTACK/HURT/DEAD）
   weapons/    WeaponData + AttackStep + weapons.gd（武器库，代码定义）
@@ -79,12 +80,13 @@ src/
               level_grid.gd（生成调度 + 可达性校验，不进场景树，可批量测试）
               room.gd（把网格变成碰撞体/画面/角色）, door.gd
   pickups/    cell_pickup.gd
-  ui/         hud.gd
+  ui/         hud.gd（局内）, meta_screen.gd（结算/解锁/选人）
   fx/         game_camera.gd, damage_number.gd
-  main.gd     房间 ↔ 玩家 ↔ 死亡重开的编排
+  main.gd     局外整备 ↔ 8 层 run ↔ 死亡/通关结算的编排
 assets/levels/chunks/*.room   手绘的房间模板块（纯文本，一字符一格）
               画法见 assets/levels/README.md
 tests/        smoke_test（核心链路）, generation_test（关卡可通行性）
+              run_flow_test（8 层 + 结算 + 解锁 + 选人）
               chunk_test（手绘模板块：语法 + 可达性 + 接缝）
               regression_test（每项对应一个已修 issue）
               jump_model_test（跳跃模型 vs 真实玩家）
@@ -245,8 +247,9 @@ Hitbox 只 `monitoring`，Hurtbox 只 `monitorable` —— 攻击方主动检测
    `WeaponData` 已经是 Resource，加一层 Affix 数组即可；装备入口是 `Player.equip()`。
 7. **房间结构**：现在每层是一条横向通道。下一步做多房间图（分支、宝箱房、精英房）——
    模板块的 `tags` 字段就是为这个留的。
-8. **meta 进度**：`Game.meta_blueprints` 是空壳，需要接存档（`ConfigFile` 或 `ResourceSaver`）。
-9. **一次性内容**：Boss、卷轴（永久属性提升）、传送门。
+8. **meta 图纸**：局外细胞、角色解锁与选人已经用 `ConfigFile` 持久化；
+   `Game.meta_blueprints` 仍是空壳。
+9. **一次性内容**：Boss、卷轴（永久属性提升）。L8 传送门先作为无 Boss 的终点占位。
 10. **导出配置**：`.room` 是纯文本，不走导入流水线。以后做正式导出时，
     记得把 `*.room` 加进导出过滤器，否则打包后 `ChunkLibrary` 会读不到块、
     静默退回智能体挖掘。

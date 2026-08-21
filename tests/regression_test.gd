@@ -22,6 +22,7 @@ var main: Node
 
 
 func _ready() -> void:
+	Game.begin_test_session()
 	main = MainScene.instantiate()
 	add_child(main)
 	await _frames(10)
@@ -127,32 +128,29 @@ func _test_issue_3_depth_ordering() -> void:
 
 # ---------------------------------------------------------------- #4
 
-## 死亡后 0.8 秒内快速重开，旧协程不能把死亡界面盖到新一局上
+## 死亡后 0.8 秒内快速开始新局，旧协程不能把局外界面盖到新一局上
 func _test_issue_4_stale_death_screen() -> void:
-	print("\n[#4] 快速重开后的残留死亡界面")
-	var hud := main.get_node("HUD")
-	var death_screen: Control = hud.get_node("DeathScreen")
+	print("\n[#4] 快速重开后的残留结算界面")
+	var meta_screen := main.get_node("MetaScreen") as CanvasLayer
 	var player := get_tree().get_first_node_in_group(&"player") as Player
 
 	player.health.end_iframes()
 	player.health.take_damage(DamageInfo.new(9999, Vector2.LEFT, null))
 	await _frames(6)   # 远早于 0.8 秒的延迟
-	_check(not death_screen.visible, "#4 死亡界面还在延迟中，此刻不该显示")
+	_check(not meta_screen.visible, "#4 结算界面还在延迟中，此刻不该显示")
 
-	Events.request_restart_run.emit()
 	main._start_run()
 	await _frames(90)  # 等到旧协程的 0.8 秒早已过去
 
-	_check(not death_screen.visible, "#4 快速重开后死亡界面没有再冒出来")
+	_check(not meta_screen.visible, "#4 快速开新局后旧结算界面没有再冒出来")
 
 	# 新一局里再死一次，界面仍然要正常工作
 	var player2 := get_tree().get_first_node_in_group(&"player") as Player
 	player2.health.end_iframes()
 	player2.health.take_damage(DamageInfo.new(9999, Vector2.LEFT, null))
 	await _frames(80)
-	_check(death_screen.visible, "#4 新一局死亡后界面正常显示")
+	_check(meta_screen.visible, "#4 新一局死亡后结算界面正常显示")
 
-	Events.request_restart_run.emit()
 	main._start_run()
 	await _frames(10)
 
@@ -191,12 +189,15 @@ func _test_issue_5_cell_reward_split() -> void:
 	var player := get_tree().get_first_node_in_group(&"player") as Player
 	brute.global_position = player.global_position + Vector2(30, 0)
 	await _frames(2)
+	var room_enemies_before: int = main._remaining_enemies
 	var cells_before := Game.cells
 	var reward: int = brute.cell_reward
 	brute.health.take_damage(DamageInfo.new(99999, Vector2.RIGHT, null))
 	await _frames(150)
 	_check(Game.cells - cells_before == reward,
 		"#5 击杀 Brute 实际到手 %d（配置 %d）" % [Game.cells - cells_before, reward])
+	_check(main._remaining_enemies == room_enemies_before,
+		"#5 房间外临时敌人死亡不污染本层清怪计数")
 
 
 # ---------------------------------------------------------------- #6

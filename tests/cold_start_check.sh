@@ -76,6 +76,7 @@ echo "[2] 类缓存缺失（纹理已导入）—— issue #8 的场景"
 rm -f "$TMP_DIR/.godot/global_script_class_cache.cfg"
 run_phase "启动游戏" --quit-after 60
 run_phase "冒烟测试" res://tests/smoke_test.tscn
+run_phase "流程状态测试" res://tests/run_flow_test.tscn
 run_phase "生成测试" res://tests/generation_test.tscn
 run_phase "模板块测试" res://tests/chunk_test.tscn
 run_phase "回归测试" res://tests/regression_test.tscn
