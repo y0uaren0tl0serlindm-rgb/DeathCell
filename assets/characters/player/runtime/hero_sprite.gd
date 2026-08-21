@@ -13,6 +13,20 @@ enum MovementVisual { IDLE, START, LOOP, STOP, TURN }
 @export var idle_frame_07_texture: Texture2D
 @export var idle_frame_08_texture: Texture2D
 @export var roll_texture: Texture2D
+@export var jump_frame_01_texture: Texture2D
+@export var jump_frame_02_texture: Texture2D
+@export var fall_frame_01_texture: Texture2D
+@export var fall_frame_02_texture: Texture2D
+@export var hurt_frame_01_texture: Texture2D
+@export var hurt_frame_02_texture: Texture2D
+@export var hurt_frame_03_texture: Texture2D
+@export var hurt_frame_04_texture: Texture2D
+@export var death_frame_01_texture: Texture2D
+@export var death_frame_02_texture: Texture2D
+@export var death_frame_03_texture: Texture2D
+@export var death_frame_04_texture: Texture2D
+@export var death_frame_05_texture: Texture2D
+@export var death_frame_06_texture: Texture2D
 @export var attack_a_frame_01_texture: Texture2D
 @export var attack_a_frame_02_texture: Texture2D
 @export var attack_a_frame_03_texture: Texture2D
@@ -43,19 +57,29 @@ enum MovementVisual { IDLE, START, LOOP, STOP, TURN }
 @export var run_turn_frame_03_texture: Texture2D
 @export var idle_state_value := 0
 @export var run_state_value := 1
+@export var jump_state_value := 2
+@export var fall_state_value := 3
 @export var roll_state_value := 4
 @export var attack_state_value := 5
+@export var hurt_state_value := 6
+@export var dead_state_value := 7
 @export var idle_fps := 8.0
 @export var run_fps := 14.0
+@export var jump_fps := 10.0
+@export var fall_fps := 8.0
+@export var hurt_duration := 0.18
+@export var death_fps := 10.0
 @export var transition_fps := 18.0
 @export var max_run_speed := 190.0
 @export var turn_speed_threshold := 35.0
 @export var idle_position := Vector2(0, -13)
 @export var run_position := Vector2(0, -13)
+@export var air_position := Vector2(0, -13)
 @export var attack_position := Vector2(0, -13)
 @export var roll_world_offset := Vector2(0, -13)
 @export var idle_scale := Vector2(0.6, 0.6)
 @export var run_scale := Vector2(0.6, 0.6)
+@export var air_scale := Vector2(0.6, 0.6)
 @export var attack_scale := Vector2(0.6, 0.6)
 @export var roll_scale := Vector2(0.6, 0.6)
 
@@ -111,6 +135,26 @@ func _update_action_pose(delta := 0.0) -> void:
 		_enter_movement_visual(MovementVisual.IDLE)
 		_visual_facing = requested_facing
 		_show_attack()
+		return
+	if state_value == jump_state_value:
+		_enter_movement_visual(MovementVisual.IDLE)
+		_visual_facing = requested_facing
+		_show_air_action(_jump_frames(), jump_fps)
+		return
+	if state_value == fall_state_value:
+		_enter_movement_visual(MovementVisual.IDLE)
+		_visual_facing = requested_facing
+		_show_air_action(_fall_frames(), fall_fps)
+		return
+	if state_value == hurt_state_value:
+		_enter_movement_visual(MovementVisual.IDLE)
+		_visual_facing = requested_facing
+		_show_one_shot_action(_hurt_frames(), hurt_duration)
+		return
+	if state_value == dead_state_value:
+		_enter_movement_visual(MovementVisual.IDLE)
+		_visual_facing = requested_facing
+		_show_one_shot_action(_death_frames(), float(_death_frames().size()) / maxf(death_fps, 1.0))
 		return
 
 	# The gameplay state can briefly report IDLE while reversing direction or
@@ -258,6 +302,25 @@ static func attack_anim_names() -> Array[StringName]:
 	return [&"attack_a", &"attack_b"]
 
 
+func _show_air_action(frames: Array[Texture2D], fps: float) -> void:
+	var frame_index := int(_read_host_state_time() * fps) % frames.size()
+	if frames[frame_index] != null and texture != frames[frame_index]:
+		texture = frames[frame_index]
+	flip_h = _visual_facing < 0
+	position = air_position
+	scale = air_scale
+
+
+func _show_one_shot_action(frames: Array[Texture2D], duration: float) -> void:
+	var progress := clampf(_read_host_state_time() / maxf(duration, 0.001), 0.0, 0.999)
+	var frame_index := mini(int(progress * frames.size()), frames.size() - 1)
+	if frames[frame_index] != null and texture != frames[frame_index]:
+		texture = frames[frame_index]
+	flip_h = _visual_facing < 0
+	position = air_position
+	scale = air_scale
+
+
 func _show_attack() -> void:
 	var active_step_for_anim: Variant = _host.get("_active_step")
 	var anim := &"attack_a"
@@ -351,6 +414,34 @@ func _idle_frames() -> Array[Texture2D]:
 	]
 
 
+func _jump_frames() -> Array[Texture2D]:
+	return [jump_frame_01_texture, jump_frame_02_texture]
+
+
+func _fall_frames() -> Array[Texture2D]:
+	return [fall_frame_01_texture, fall_frame_02_texture]
+
+
+func _hurt_frames() -> Array[Texture2D]:
+	return [
+		hurt_frame_01_texture,
+		hurt_frame_02_texture,
+		hurt_frame_03_texture,
+		hurt_frame_04_texture,
+	]
+
+
+func _death_frames() -> Array[Texture2D]:
+	return [
+		death_frame_01_texture,
+		death_frame_02_texture,
+		death_frame_03_texture,
+		death_frame_04_texture,
+		death_frame_05_texture,
+		death_frame_06_texture,
+	]
+
+
 func _attack_a_frames() -> Array[Texture2D]:
 	return [
 		attack_a_frame_01_texture,
@@ -387,6 +478,11 @@ func _read_velocity_x() -> float:
 func _read_host_input_x() -> float:
 	var host_input: Variant = _host.get("_input_x")
 	return float(host_input) if host_input != null else 0.0
+
+
+func _read_host_state_time() -> float:
+	var host_state_time: Variant = _host.get("_state_time")
+	return float(host_state_time) if host_state_time != null else 0.0
 
 
 func _frame_duration(frame_count: int) -> float:

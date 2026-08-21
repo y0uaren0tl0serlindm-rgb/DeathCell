@@ -1,4 +1,4 @@
-[gd_scene load_steps=31 format=3]
+[gd_scene load_steps=49 format=3]
 
 [ext_resource type="Script" path="res://assets/characters/player/runtime/hero_sprite.gd" id="1_script"]
 [ext_resource type="Shader" path="res://assets/characters/player/runtime/hero_flash.gdshader" id="2_shader"]
@@ -30,6 +30,66 @@
 [ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_b_04.png" id="28_attack_b_04"]
 [ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_b_05.png" id="29_attack_b_05"]
 [ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_attack_b_06.png" id="30_attack_b_06"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_hurt_sheet.png" id="31_hurt_sheet"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_jump_sheet.png" id="32_jump_sheet"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_fall_sheet.png" id="33_fall_sheet"]
+[ext_resource type="Texture2D" path="res://assets/characters/player/animations/swordsman_death_sheet.png" id="34_death_sheet"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_hurt_01"]
+atlas = ExtResource("31_hurt_sheet")
+region = Rect2(0, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_hurt_02"]
+atlas = ExtResource("31_hurt_sheet")
+region = Rect2(200, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_hurt_03"]
+atlas = ExtResource("31_hurt_sheet")
+region = Rect2(400, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_hurt_04"]
+atlas = ExtResource("31_hurt_sheet")
+region = Rect2(600, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_jump_01"]
+atlas = ExtResource("32_jump_sheet")
+region = Rect2(0, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_jump_02"]
+atlas = ExtResource("32_jump_sheet")
+region = Rect2(200, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fall_01"]
+atlas = ExtResource("33_fall_sheet")
+region = Rect2(0, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fall_02"]
+atlas = ExtResource("33_fall_sheet")
+region = Rect2(200, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_death_01"]
+atlas = ExtResource("34_death_sheet")
+region = Rect2(0, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_death_02"]
+atlas = ExtResource("34_death_sheet")
+region = Rect2(200, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_death_03"]
+atlas = ExtResource("34_death_sheet")
+region = Rect2(400, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_death_04"]
+atlas = ExtResource("34_death_sheet")
+region = Rect2(600, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_death_05"]
+atlas = ExtResource("34_death_sheet")
+region = Rect2(800, 0, 200, 200)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_death_06"]
+atlas = ExtResource("34_death_sheet")
+region = Rect2(1000, 0, 200, 200)
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_hero"]
 resource_local_to_scene = true
@@ -51,6 +111,20 @@ idle_frame_06_texture = ExtResource("8_idle_06")
 idle_frame_07_texture = ExtResource("9_idle_07")
 idle_frame_08_texture = ExtResource("10_idle_08")
 roll_texture = ExtResource("3_idle_01")
+jump_frame_01_texture = SubResource("AtlasTexture_jump_01")
+jump_frame_02_texture = SubResource("AtlasTexture_jump_02")
+fall_frame_01_texture = SubResource("AtlasTexture_fall_01")
+fall_frame_02_texture = SubResource("AtlasTexture_fall_02")
+hurt_frame_01_texture = SubResource("AtlasTexture_hurt_01")
+hurt_frame_02_texture = SubResource("AtlasTexture_hurt_02")
+hurt_frame_03_texture = SubResource("AtlasTexture_hurt_03")
+hurt_frame_04_texture = SubResource("AtlasTexture_hurt_04")
+death_frame_01_texture = SubResource("AtlasTexture_death_01")
+death_frame_02_texture = SubResource("AtlasTexture_death_02")
+death_frame_03_texture = SubResource("AtlasTexture_death_03")
+death_frame_04_texture = SubResource("AtlasTexture_death_04")
+death_frame_05_texture = SubResource("AtlasTexture_death_05")
+death_frame_06_texture = SubResource("AtlasTexture_death_06")
 attack_a_frame_01_texture = ExtResource("19_attack_a_01")
 attack_a_frame_02_texture = ExtResource("20_attack_a_02")
 attack_a_frame_03_texture = ExtResource("21_attack_a_03")
